@@ -7,6 +7,7 @@ import PlaneCore
 @MainActor
 public final class SessionManager: ObservableObject {
     @Published public private(set) var sessions: [Session] = []
+    @Published public private(set) var volumes: [Volume] = []
     public private(set) var settings: HostSettings
     private var reaper: Timer?
 
@@ -16,6 +17,7 @@ public final class SessionManager: ObservableObject {
         if let leftovers = try? FileManager.default.contentsOfDirectory(at: Paths.sessions, includingPropertiesForKeys: nil) {
             for d in leftovers { try? FileManager.default.removeItem(at: d) }
         }
+        volumes = Volume.loadAll()
         reaper = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
             Task { @MainActor in await self?.reap() }
         }
@@ -29,6 +31,8 @@ public final class SessionManager: ObservableObject {
         public var ttl_seconds: Int?
         public var idle_timeout_seconds: Int?
         public var network: EgressPolicy?
+        /// Id of a data volume to plug in. One session per volume at a time.
+        public var volume: String?
         public init() {}
     }
 
@@ -46,14 +50,28 @@ public final class SessionManager: ObservableObject {
         // reuse slot 0; that session cold boots instead of restoring.
         let used = Set(live.compactMap { $0.slot })
         let slot = image.slotImages().first { !used.contains($0.dir) } ?? image
+        var volume: Volume?
+        if let vid = req.volume {
+            guard #available(macOS 15.0, *) else { throw APIError(501, "data volumes need macOS 15 or later on the host") }
+            guard let v = volumes.first(where: { $0.id == vid }) else { throw APIError(404, "no such volume") }
+            if let other = attachedSession(v.id) { throw APIError(409, "volume is in use by \(other)") }
+            volume = v
+        }
         let s = Session(ttl: TimeInterval(ttl), idleTimeout: TimeInterval(idle), policy: req.network ?? EgressPolicy())
         s.slot = slot.dir
+        // Reserved before any await, so a second request for the same volume sees it taken.
+        s.volume = volume
         s.onChange = { [weak self] in self?.objectWillChange.send() }
         s.onGuestStopped = { [weak self] s in Task { await self?.destroy(s.id, reason: "guest stopped") } }
         sessions.append(s)
         Log.info("creating (ttl \(ttl)s, idle \(idle)s, egress \(s.policy.enabled ? "on" : "off"))", session: s.id)
         do {
             try await s.boot(image: slot, settings: settings)
+            if var v = s.volume, let i = volumes.firstIndex(where: { $0.id == v.id }) {
+                v.meta.lastAttached = Date()
+                try? v.save()
+                volumes[i] = v
+            }
         } catch {
             Log.error("boot failed: \(error.localizedDescription)", session: s.id)
             await s.teardown()
@@ -62,6 +80,28 @@ public final class SessionManager: ObservableObject {
             throw error
         }
         return s
+    }
+
+    // MARK: volumes
+
+    public func attachedSession(_ volumeID: String) -> String? {
+        live.first { $0.volume?.id == volumeID }?.id
+    }
+
+    public func createVolume(name: String?, sizeGB: Int) throws -> Volume {
+        guard (1...2000).contains(sizeGB) else { throw APIError(400, "size_gb must be 1–2000") }
+        let v = try Volume.create(name: name, sizeGB: sizeGB)
+        volumes.append(v)
+        Log.info("volume \(v.id) created (\(sizeGB) GB)")
+        return v
+    }
+
+    public func deleteVolume(_ id: String) throws {
+        guard let v = volumes.first(where: { $0.id == id }) else { throw APIError(404, "no such volume") }
+        if let s = attachedSession(id) { throw APIError(409, "volume is in use by \(s); end that session first") }
+        try v.remove()
+        volumes.removeAll { $0.id == id }
+        Log.info("volume \(id) deleted")
     }
 
     public func session(_ id: String) -> Session? { sessions.first { $0.id == id && $0.state != .stopped } }

@@ -130,9 +130,13 @@ func handleControl(_ fd: Int32) {
         error = setClock(t)
         if let id = req.sessionID { log("session \(id) attached") }
     }
+    if req.kind == .eject, let name = req.volume {
+        error = eject(name)
+    }
     let s = currentStatus()
     let reply = ControlReply(ok: error == nil, agentVersion: version, accessibility: s.accessibility,
-                             screenRecording: s.screenRecording, arcCUA: s.arcCUA, error: error)
+                             screenRecording: s.screenRecording, arcCUA: s.arcCUA, error: error,
+                             volumes: mountedVolumes())
     try? FD.writeFrame(fd, JSONEncoder().encode(reply))
 }
 
@@ -150,6 +154,38 @@ func setClock(_ t: Double) -> String? {
     do { try p.run() } catch { return "clock: \(error)" }
     p.waitUntilExit()
     return p.terminationStatus == 0 ? nil : "clock: sudo date failed (\(p.terminationStatus))"
+}
+
+func mountedVolumes() -> [String] {
+    let names = (try? FileManager.default.contentsOfDirectory(atPath: "/Volumes")) ?? []
+    return names.filter { name in
+        // The boot volume shows up as a symlink to /.
+        let path = "/Volumes/" + name
+        return (try? FileManager.default.destinationOfSymbolicLink(atPath: path)) == nil
+    }.sorted()
+}
+
+/// Flushes and ejects a volume so the host can unplug it without damage.
+func eject(_ name: String) -> String? {
+    guard !name.contains("/"), mountedVolumes().contains(name) else { return nil } // already gone
+    let p = Process()
+    p.executableURL = URL(fileURLWithPath: "/usr/sbin/diskutil")
+    p.arguments = ["eject", "/Volumes/" + name]
+    p.standardOutput = FileHandle.nullDevice
+    p.standardError = FileHandle.nullDevice
+    do { try p.run() } catch { return "eject: \(error)" }
+    p.waitUntilExit()
+    if p.terminationStatus == 0 { return nil }
+    // Something holds files open (an app writing to it). Force it: the session is ending.
+    let f = Process()
+    f.executableURL = URL(fileURLWithPath: "/usr/sbin/diskutil")
+    f.arguments = ["unmount", "force", "/Volumes/" + name]
+    f.standardOutput = FileHandle.nullDevice
+    f.standardError = FileHandle.nullDevice
+    try? f.run()
+    f.waitUntilExit()
+    log("volume \(name) was busy; force-unmounted")
+    return f.terminationStatus == 0 ? nil : "could not unmount \(name)"
 }
 
 /// Reads the one-line header the host sends before MCP traffic, byte by byte so nothing past

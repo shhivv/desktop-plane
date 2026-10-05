@@ -127,6 +127,41 @@ public enum SelfTest {
         check("session files are gone after delete", !FileManager.default.fileExists(atPath: dirA.path))
         check("deleted session's token is dead", await call("GET", "/v1/sessions/\(aid)", token: atok).0 == 404)
 
+        // Data volumes: only the volume survives; the VM is new every time.
+        print("Data volume…")
+        let rv = await call("POST", "/v1/volumes", token: admin, body: ["name": "selftest", "size_gb": 2])
+        let vid = json(rv.1)["id"] as? String ?? ""
+        check("create volume", rv.0 == 201, "\(rv.0) \(json(rv.1)["error"] ?? vid)")
+        if rv.0 == 201 {
+            let rc = await call("POST", "/v1/sessions", token: admin, body: ["volume": vid])
+            let c = json(rc.1)
+            check("session with volume", rc.0 == 201 && (c["volume"] as? [String: Any])?["mount"] as? String == Volume.guestMountPoint,
+                  "\(rc.0) \(c["error"] ?? c["detail"] ?? "")")
+            check("volume cannot attach to two sessions",
+                  await call("POST", "/v1/sessions", token: admin, body: ["volume": vid]).0 == 409)
+            check("volume cannot be deleted while attached", await call("DELETE", "/v1/volumes/\(vid)", token: admin).0 == 409)
+            if let cid = c["id"] as? String, let sc = service.manager.session(cid) {
+                let w = (try? await guestShell(sc, "echo kept > \(Volume.guestMountPoint)/marker && echo wrote; echo gone > ~/dp-scratch")) ?? "error"
+                check("write to volume", w.contains("wrote"), w.replacingOccurrences(of: "\n", with: " | "))
+                _ = await call("DELETE", "/v1/sessions/\(cid)", token: admin)
+            }
+            check("volume is free after its session ends",
+                  json(await call("GET", "/v1/volumes/\(vid)", token: admin).1)["attached_to"] is NSNull)
+            let re = await call("POST", "/v1/sessions", token: admin, body: ["volume": vid])
+            if re.0 == 201, let eid = json(re.1)["id"] as? String, let se = service.manager.session(eid) {
+                let kept = (try? await guestShell(se, "cat \(Volume.guestMountPoint)/marker")) ?? ""
+                check("volume data survives into a new session", kept.contains("kept"), kept)
+                let gone = (try? await guestShell(se, "cat ~/dp-scratch 2>/dev/null || echo absent")) ?? ""
+                check("data outside the volume does not", gone.contains("absent"), gone)
+                _ = await call("DELETE", "/v1/sessions/\(eid)", token: admin)
+            } else {
+                check("second session with volume", false, "\(re.0)")
+            }
+            let vdir = Paths.volumes.appendingPathComponent(vid)
+            check("delete volume", await call("DELETE", "/v1/volumes/\(vid)", token: admin).0 == 204)
+            check("volume files are gone", !FileManager.default.fileExists(atPath: vdir.path))
+        }
+
         print("\n\(passed) passed, \(failed) failed")
         return failed == 0
     }

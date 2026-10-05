@@ -8,6 +8,10 @@ import Foundation
 /// Screen Recording grants are re-pointed at the new identity in the guest's TCC database.
 /// That is the guest's own permission store on a disk we own, edited while the guest is off.
 ///
+/// It also pre-approves "Removable Volumes" for the agent. Otherwise the first touch of a data
+/// volume raises a privacy prompt in the guest that blocks the process until someone clicks,
+/// and no one is there to click.
+///
 /// The disk changes, so the image goes back to `provisioned` and needs a new snapshot.
 public enum AgentUpdater {
     static let bundleID = "dev.desktopplane.agent"
@@ -44,13 +48,26 @@ public enum AgentUpdater {
             try? fm.removeItem(at: appDst)
             try fm.copyItem(at: staged, to: appDst)
             let n = try repointGrants(tccDB: data.appendingPathComponent("Library/Application Support/com.apple.TCC/TCC.db"),
-                                      app: staged)
+                                      requirement: try requirementHex(app: staged))
             notes.append(n == 0 ? "launcher replaced; no existing grants found, grant permissions while provisioning"
                                 : "launcher replaced; \(n) permission grants moved to it")
         }
 
-        // 3. LaunchAgents point at the launcher.
+        // 3. LaunchAgents point at the launcher; removable volumes are pre-approved for it.
         let users = (try? fm.contentsOfDirectory(at: data.appendingPathComponent("Users"), includingPropertiesForKeys: nil)) ?? []
+        if fm.fileExists(atPath: appDst.path) {
+            let req = try requirementHex(app: appDst)
+            for home in users {
+                let db = home.appendingPathComponent("Library/Application Support/com.apple.TCC/TCC.db")
+                guard fm.fileExists(atPath: db.path) else { continue }
+                try run("/usr/bin/sqlite3", [db.path, """
+                    INSERT OR REPLACE INTO access (service, client, client_type, auth_value, auth_reason, auth_version,
+                        csreq, indirect_object_identifier, flags)
+                    VALUES ('kTCCServiceSystemPolicyRemovableVolumes', '\(bundleID)', 0, 2, 4, 1, X'\(req)', 'UNUSED', 0);
+                    """])
+                notes.append("removable volumes allowed for \(home.lastPathComponent)")
+            }
+        }
         for home in users {
             let plistURL = home.appendingPathComponent("Library/LaunchAgents/\(bundleID).plist")
             guard let d = try? Data(contentsOf: plistURL),
@@ -70,8 +87,15 @@ public enum AgentUpdater {
 
     /// Points the guest's existing grants for the agent's bundle id at the new launcher's code
     /// requirement. Returns how many grants were updated.
-    static func repointGrants(tccDB: URL, app: URL) throws -> Int {
+    static func repointGrants(tccDB: URL, requirement hex: String) throws -> Int {
         guard FileManager.default.fileExists(atPath: tccDB.path) else { return 0 }
+        let out = try run("/usr/bin/sqlite3", [tccDB.path,
+            "UPDATE access SET csreq = X'\(hex)' WHERE client = '\(bundleID)' AND client_type = 0; SELECT changes();"])
+        return Int(out.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
+    }
+
+    /// The app's designated requirement, compiled, as hex: what TCC stores to recognise it.
+    static func requirementHex(app: URL) throws -> String {
         // e.g. "designated => cdhash H\"…\"" for an ad-hoc signature.
         let req = try run("/usr/bin/codesign", ["-d", "-r-", app.path])
         guard let line = req.split(separator: "\n").first(where: { $0.contains("designated =>") }),
@@ -80,10 +104,7 @@ public enum AgentUpdater {
         let blob = FileManager.default.temporaryDirectory.appendingPathComponent("dp-req-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: blob) }
         _ = try run("/usr/bin/csreq", ["-r=" + requirement, "-b", blob.path])
-        let hex = try Data(contentsOf: blob).map { String(format: "%02X", $0) }.joined()
-        let out = try run("/usr/bin/sqlite3", [tccDB.path,
-            "UPDATE access SET csreq = X'\(hex)' WHERE client = '\(bundleID)' AND client_type = 0; SELECT changes();"])
-        return Int(out.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
+        return try Data(contentsOf: blob).map { String(format: "%02X", $0) }.joined()
     }
 
     static func attach(_ disk: URL) throws -> ([String], [URL]) {

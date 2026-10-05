@@ -58,6 +58,11 @@ enum VMFactory {
             c.directorySharingDevices = [share]
         case .runtime(let nic):
             net.attachment = VZFileHandleNetworkDeviceAttachment(fileHandle: nic)
+            // An empty USB controller, part of the snapshot, so a session's data volume can be
+            // plugged in after restore without changing the restored configuration.
+            if #available(macOS 15.0, *) {
+                c.usbControllers = [VZXHCIControllerConfiguration()]
+            }
         }
         c.networkDevices = [net]
 

@@ -11,6 +11,11 @@ import PlaneCore
 ///     POST   /v1/sessions/:id/mcp             MCP Streamable HTTP (JSON responses)
 ///     DELETE /v1/sessions/:id/mcp             end an MCP session (Mcp-Session-Id header)
 ///     GET    /v1/sessions/:id/screenshot      PNG
+///
+///     POST   /v1/volumes                      admin; {name, size_gb}
+///     GET    /v1/volumes                      admin
+///     GET    /v1/volumes/:id                  admin
+///     DELETE /v1/volumes/:id                  admin; refused while attached
 struct API {
     let manager: SessionManager
 
@@ -23,7 +28,10 @@ struct API {
         // "/v1/sessions/ses_x/mcp" -> route "/v1/sessions/:id/mcp", id "ses_x"
         var parts = req.path.split(separator: "/").map(String.init)
         var id = ""
-        if parts.count >= 3, parts[0] == "v1", parts[1] == "sessions" { id = parts[2]; parts[2] = ":id" }
+        if parts.count >= 3, parts[0] == "v1", parts[1] == "sessions" || parts[1] == "volumes" {
+            id = parts[2]
+            parts[2] = ":id"
+        }
         let route = req.method + " /" + parts.joined(separator: "/")
         do {
             switch route {
@@ -43,6 +51,27 @@ struct API {
                 var obj = describe(s, req)
                 obj["token"] = s.token
                 return .json(201, obj)
+
+            case "POST /v1/volumes":
+                try requireAdmin(req)
+                let body = (try? JSONSerialization.jsonObject(with: req.body.isEmpty ? Data("{}".utf8) : req.body)) as? [String: Any]
+                guard let body else { throw APIError(400, "invalid JSON body") }
+                let v = try manager.createVolume(name: body["name"] as? String, sizeGB: body["size_gb"] as? Int ?? 10)
+                return .json(201, describe(v))
+
+            case "GET /v1/volumes":
+                try requireAdmin(req)
+                return .json(200, ["volumes": manager.volumes.map(describe)])
+
+            case "GET /v1/volumes/:id":
+                try requireAdmin(req)
+                guard let v = manager.volumes.first(where: { $0.id == id }) else { throw APIError(404, "no such volume") }
+                return .json(200, describe(v))
+
+            case "DELETE /v1/volumes/:id":
+                try requireAdmin(req)
+                try manager.deleteVolume(id)
+                return HTTPResponse(status: 204)
 
             case "GET /v1/sessions":
                 try requireAdmin(req)
@@ -136,7 +165,18 @@ struct API {
                 "created_at": f.string(from: s.created), "expires_at": f.string(from: s.expires),
                 "last_activity": f.string(from: s.lastActivity),
                 "idle_timeout_seconds": Int(s.idleTimeout), "network": net,
-                "mcp_url": base + "/mcp", "screenshot_url": base + "/screenshot"]
+                "mcp_url": base + "/mcp", "screenshot_url": base + "/screenshot",
+                "volume": s.volume.map { ["id": $0.id, "mount": Volume.guestMountPoint] as Any } ?? NSNull()]
+    }
+
+    @MainActor
+    private func describe(_ v: Volume) -> [String: Any] {
+        let f = ISO8601DateFormatter()
+        var obj: [String: Any] = ["id": v.id, "name": v.meta.name, "size_gb": v.meta.sizeGB,
+                                  "allocated_bytes": v.allocatedBytes, "created_at": f.string(from: v.meta.created),
+                                  "attached_to": manager.attachedSession(v.id).map { $0 as Any } ?? NSNull()]
+        if let t = v.meta.lastAttached { obj["last_attached_at"] = f.string(from: t) }
+        return obj
     }
 
     static func isLocalOrigin(_ origin: String) -> Bool {

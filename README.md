@@ -99,9 +99,36 @@ claude mcp add --transport http desk "$MCP_URL" --header "Authorization: Bearer 
 | GET / DELETE | `/v1/sessions/:id` | admin or session | |
 | POST / DELETE | `/v1/sessions/:id/mcp` | admin or session | MCP Streamable HTTP |
 | GET | `/v1/sessions/:id/screenshot` | admin or session | PNG |
+| POST | `/v1/volumes` | admin | `name`, `size_gb` (default 10) |
+| GET | `/v1/volumes`, `/v1/volumes/:id` | admin | size, bytes used, `attached_to` |
+| DELETE | `/v1/volumes/:id` | admin | refused while attached |
 
 A session ends when it is deleted, when its TTL passes, after its idle timeout (no MCP or
 network activity), or when the guest shuts down.
+
+### Data volumes
+
+Desktops are always fresh, but a **volume** can carry data from one session to the next, e.g.
+a browser profile, downloads, or work files:
+
+```bash
+curl -s -X POST localhost:7480/v1/volumes -H "Authorization: Bearer $TOKEN" -d '{"name": "alice", "size_gb": 20}'
+# -> {"id": "vol_…", …}
+curl -s -X POST localhost:7480/v1/sessions -H "Authorization: Bearer $TOKEN" -d '{"volume": "vol_…"}'
+```
+
+The session boots from the snapshot as usual. Then the volume is plugged in as a USB drive
+and mounts at `/Volumes/Data`. When the session ends, the guest ejects it cleanly and the VM is
+destroyed. Only what is on the volume survives. Rules:
+- one session per volume at a time;
+- a volume in use can't be deleted;
+- the files are sparse, so a volume takes up only what has been written to it.
+
+Point apps at the volume to keep their data. For example, start Chrome with
+`--user-data-dir=/Volumes/Data/chrome` to keep logins. Data that apps keep in system locations,
+such as the macOS keychain, doesn't carry over.
+
+Volumes need macOS 15 or later on the host.
 
 From the menu bar you can **Watch** any desktop live. Watching blocks your input; **Take Control**
 lets you use the desktop yourself.
@@ -120,7 +147,9 @@ The design assumes the code running in a guest is hostile.
 | Tenant → another tenant's session | Each session token opens its own session only. Asking for another session gives the same 404 as a missing one. Only the admin token can create or list sessions. MCP session ids are scoped to their session. |
 | Next tenant → previous tenant's data | VMs are never reused. Every session restores a fresh clone of the read-only golden image, and teardown deletes the clone. |
 | Web page → local API | Requests with a non-local `Origin` are refused, and the API binds to loopback by default. |
-| VM → host files / clipboard / devices | Runtime VMs have no shared folders, clipboard, audio, USB or Rosetta. The guest-tools share exists only while the image is provisioned. |
+| VM → host files / clipboard / devices | Runtime VMs have no shared folders, clipboard, audio or Rosetta. The guest-tools share exists only while the image is provisioned. The only USB device is the session's own data volume, if it asked for one. |
+| Volume → host kernel | The host formats a volume once, when it creates it, while the file holds nothing but what the host wrote. After that only guests mount it. A guest could write a malformed filesystem, so the host never parses it. |
+| Volume → another tenant | A volume attaches to one session at a time, chosen by the admin. Other sessions never see it. |
 
 The guest's system proxy is `127.0.0.1:3128`, a forwarder in the agent that pipes to the host
 over vsock. Apps that ignore the system proxy (raw sockets, UDP/QUIC) get no network.
@@ -130,7 +159,8 @@ over vsock. Apps that ignore the system proxy (raw sockets, UDP/QUIC) get no net
 - the proxy refuses loopback, LAN, metadata and rebinding addresses;
 - tokens and MCP sessions don't cross sessions;
 - clocks are synced after restore;
-- files are deleted on teardown.
+- files are deleted on teardown;
+- volume data survives into a new session while everything else is gone, and a volume can't attach to two sessions or be deleted while in use.
 
 ## Layout
 

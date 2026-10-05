@@ -49,6 +49,7 @@ struct MainView: View {
                 }
                 ImageSection()
                 SessionsSection()
+                VolumesSection()
                 ConnectSection()
                 SettingsSection()
                 LogSection()
@@ -170,6 +171,45 @@ struct SessionsSection: View {
         case .starting: .yellow
         case .stopping: .orange
         case .stopped, .failed: .gray
+        }
+    }
+}
+
+struct VolumesSection: View {
+    @EnvironmentObject var model: AppModel
+    @State private var name = ""
+    @State private var sizeGB = 10
+
+    var body: some View {
+        Section(title: "Data volumes") {
+            Text("Disks that outlive sessions. Pass \"volume\": \"<id>\" when creating a session; it mounts at \(Volume.guestMountPoint) in the guest.")
+                .font(.callout).foregroundStyle(.secondary)
+            if let m = model.manager {
+                ForEach(m.volumes, id: \.id) { v in
+                    HStack {
+                        VStack(alignment: .leading) {
+                            Text("\(v.meta.name)  ").fontWeight(.medium) + Text(v.id).font(.system(.caption, design: .monospaced))
+                            Text("\(v.meta.sizeGB) GB · \(ByteCountFormatter.string(fromByteCount: v.allocatedBytes, countStyle: .file)) used · "
+                                 + (m.attachedSession(v.id).map { "in use by \($0)" } ?? "free"))
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button("Copy ID") { model.copy(v.id) }
+                        Button("Delete") { model.run { try m.deleteVolume(v.id) } }
+                            .disabled(m.attachedSession(v.id) != nil)
+                    }
+                }
+                HStack {
+                    TextField("Name", text: $name).frame(width: 180)
+                    Stepper("\(sizeGB) GB", value: $sizeGB, in: 1...500)
+                    Spacer()
+                    Button("Create Volume") {
+                        let n = name.isEmpty ? nil : name
+                        model.run { _ = try m.createVolume(name: n, sizeGB: sizeGB) }
+                        name = ""
+                    }
+                }
+            }
         }
     }
 }

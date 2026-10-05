@@ -22,6 +22,9 @@ public final class Session: NSObject, Identifiable {
     let dir: URL
     /// The image slot this session was cloned from. Its machine identity is in use while it runs.
     var slot: URL?
+    /// Data volume plugged in after boot, if the session asked for one.
+    public internal(set) var volume: Volume?
+    private var usbDevice: AnyObject?
     var lan: VirtualLAN?
     var mcp: [String: MCPBridge] = [:]
     var proxyListener: VZVirtioSocketListener?
@@ -101,9 +104,59 @@ public final class Session: NSObject, Identifiable {
         }
         let hello = try await GuestLink(vm: vm).control(.init(kind: .hello, sessionID: id, hostTime: Date().timeIntervalSince1970))
         if !hello.ok { Log.warn("guest hello: \(hello.error ?? "failed")", session: id) }
+        if let volume {
+            guard #available(macOS 15.0, *) else { throw PlaneError("data volumes need macOS 15 or later on the host") }
+            try await attach(volume)
+        }
         detail = "arc-cua \(reply.arcCUA ?? "?") · screen recording \(reply.screenRecording ? "on" : "off")"
+            + (volume.map { " · volume \($0.meta.name)" } ?? "")
         Log.info("ready in \(String(format: "%.1f", Date().timeIntervalSince(t0)))s (\(bootMode))", session: id)
         state = .ready
+    }
+
+    /// Plugs the volume in as a USB drive and waits for the guest to mount it.
+    @available(macOS 15.0, *)
+    private func attach(_ v: Volume) async throws {
+        guard let vm, let usb = vm.usbControllers.first else {
+            throw PlaneError("this image has no USB controller; redo the snapshot step to use volumes")
+        }
+        let disk = try VZDiskImageStorageDeviceAttachment(url: v.disk, readOnly: false,
+                                                          cachingMode: .automatic, synchronizationMode: .full)
+        let device = VZUSBMassStorageDevice(configuration: VZUSBMassStorageDeviceConfiguration(attachment: disk))
+        try await withCheckedThrowingContinuation { (c: CheckedContinuation<Void, Error>) in
+            usb.attach(device: device) { error in
+                if let error { c.resume(throwing: error) } else { c.resume() }
+            }
+        }
+        usbDevice = device
+        let link = try GuestLink(vm: vm)
+        let deadline = Date().addingTimeInterval(30)
+        while Date() < deadline {
+            if let r = try? await link.control(.init(kind: .ping), timeout: 3), r.volumes?.contains(Volume.label) == true {
+                Log.info("volume \(v.id) mounted at \(Volume.guestMountPoint)", session: id)
+                return
+            }
+            try await Task.sleep(nanoseconds: 300_000_000)
+        }
+        throw PlaneError("the guest did not mount the volume within 30s")
+    }
+
+    /// Ejects in the guest (flushing its writes), then unplugs.
+    private func detachVolume(_ vm: VZVirtualMachine) async {
+        guard #available(macOS 15.0, *), let device = usbDevice as? VZUSBMassStorageDevice,
+              let usb = vm.usbControllers.first else { return }
+        if vm.state == .running {
+            do {
+                let r = try await GuestLink(vm: vm).control(.init(kind: .eject, volume: Volume.label), timeout: 20)
+                if let e = r.error { Log.warn("volume eject: \(e)", session: id) }
+            } catch {
+                Log.warn("volume eject failed: \(error.localizedDescription)", session: id)
+            }
+        }
+        await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
+            usb.detach(device: device) { _ in c.resume() }
+        }
+        usbDevice = nil
     }
 
     private func waitForAgent(timeout: TimeInterval) async throws -> ControlReply {
@@ -131,6 +184,7 @@ public final class Session: NSObject, Identifiable {
             if let d = vm.socketDevices.first as? VZVirtioSocketDevice {
                 d.removeSocketListener(forPort: VsockPort.hostProxy)
             }
+            await detachVolume(vm)
             if vm.canStop { try? await vm.stop() }
         }
         vm = nil

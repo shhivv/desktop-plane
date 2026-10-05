@@ -125,6 +125,9 @@ public final class ImageBuilder: NSObject, ObservableObject {
         try await withCheckedThrowingContinuation { (c: CheckedContinuation<Void, Error>) in provisionDone = c }
         image.meta.stage = .provisioned
         try image.save()
+        // Offline touch-ups the guest can't do for itself (see AgentUpdater).
+        set("Finishing guest setup")
+        Log.info(try AgentUpdater.update(image: image))
         set("Provisioned. Next: finalize.")
     }
 

@@ -9,12 +9,13 @@ public enum Paths {
     public static var ipsw: URL { root.appendingPathComponent("ipsw") }
     public static var images: URL { root.appendingPathComponent("images") }
     public static var sessions: URL { root.appendingPathComponent("sessions") }
+    public static var volumes: URL { root.appendingPathComponent("volumes") }
     public static var settings: URL { root.appendingPathComponent("settings.json") }
     public static var log: URL { root.appendingPathComponent("planed.log") }
     public static var lock: URL { root.appendingPathComponent("planed.lock") }
 
     public static func ensure() throws {
-        for d in [root, ipsw, images, sessions] {
+        for d in [root, ipsw, images, sessions, volumes] {
             try FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
         }
         // Nothing in here is for anyone but this user.
