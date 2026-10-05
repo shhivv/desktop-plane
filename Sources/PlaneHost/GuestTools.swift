@@ -11,6 +11,7 @@ enum GuestTools {
         try? fm.removeItem(at: dir)
         try fm.createDirectory(at: dir, withIntermediateDirectories: true)
         try buildAgentBundle(at: dir.appendingPathComponent(agentBundleName))
+        try FileManager.default.copyItem(at: try agentCore(), to: dir.appendingPathComponent("agent-core"))
         let script = dir.appendingPathComponent("install.sh")
         try installScript.write(to: script, atomically: true, encoding: .utf8)
         chmod(script.path, 0o755)
@@ -18,26 +19,32 @@ enum GuestTools {
         return dir
     }
 
-    /// Finds the GuestAgent build: inside the app bundle, or next to this executable (swift build).
-    static func agentSource() throws -> URL {
-        if let u = ProcessInfo.processInfo.environment["PLANE_GUEST_AGENT"] { return URL(fileURLWithPath: u) }
-        if let app = Bundle.main.url(forResource: "DesktopPlaneAgent", withExtension: "app") { return app }
+    /// Where the agent lives in the guest. The launcher app runs it.
+    static let guestCorePath = "/Library/Application Support/DesktopPlane/agent-core"
+    static let launcherExecutable = "DesktopPlaneAgent"
+
+    /// Finds a guest build product: in the app's Resources, or next to this executable (swift build).
+    static func buildProduct(_ resource: String, sibling: String) throws -> URL {
+        if let u = Bundle.main.url(forResource: resource, withExtension: nil) { return u }
         let exe = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath()
-        let sibling = exe.deletingLastPathComponent().appendingPathComponent("GuestAgent")
-        if FileManager.default.isExecutableFile(atPath: sibling.path) { return sibling }
-        throw PlaneError("GuestAgent not found; build it with `swift build` or use the packaged app")
+        let s = exe.deletingLastPathComponent().appendingPathComponent(sibling)
+        if FileManager.default.isExecutableFile(atPath: s.path) { return s }
+        throw PlaneError("\(sibling) not found; build with `swift build` or use the packaged app")
     }
 
+    static func agentCore() throws -> URL { try buildProduct("agent-core", sibling: "GuestAgent") }
+
+    /// Builds (or copies) the launcher app: the stable code identity permissions are granted to.
     static func buildAgentBundle(at dest: URL) throws {
-        let src = try agentSource()
         let fm = FileManager.default
-        if src.pathExtension == "app" {
-            try fm.copyItem(at: src, to: dest)
+        if let app = Bundle.main.url(forResource: "DesktopPlaneAgent", withExtension: "app") {
+            try fm.copyItem(at: app, to: dest)
             return
         }
+        let src = try buildProduct("AgentLauncher", sibling: "AgentLauncher")
         let macos = dest.appendingPathComponent("Contents/MacOS")
         try fm.createDirectory(at: macos, withIntermediateDirectories: true)
-        try fm.copyItem(at: src, to: macos.appendingPathComponent("GuestAgent"))
+        try fm.copyItem(at: src, to: macos.appendingPathComponent(launcherExecutable))
         try agentInfoPlist.write(to: dest.appendingPathComponent("Contents/Info.plist"), atomically: true, encoding: .utf8)
         // Ad-hoc signature: gives TCC a stable code identity to grant permissions to.
         let p = Process()
@@ -55,7 +62,7 @@ enum GuestTools {
     <dict>
       <key>CFBundleIdentifier</key><string>dev.desktopplane.agent</string>
       <key>CFBundleName</key><string>Desktop Plane Agent</string>
-      <key>CFBundleExecutable</key><string>GuestAgent</string>
+      <key>CFBundleExecutable</key><string>DesktopPlaneAgent</string>
       <key>CFBundlePackageType</key><string>APPL</string>
       <key>CFBundleShortVersionString</key><string>0.1.0</string>
       <key>CFBundleVersion</key><string>1</string>
@@ -93,10 +100,24 @@ enum GuestTools {
     read -r -s -p "Password for $ME: " PASS; echo
     printf '%s\n' "$PASS" | sudo -S -v 2>/dev/null || { echo "Wrong password."; exit 1; }
 
+    # Running again on an image that was already locked down: undo the lockdown so the
+    # installs below can reach the internet. It is applied again at the end.
+    SERVICE="$(networksetup -listallnetworkservices | sed 1d | grep -v '^\*' | head -1)"
+    sudo networksetup -setdhcp "$SERVICE"
+    sudo networksetup -setdnsservers "$SERVICE" empty
+    sudo networksetup -setwebproxystate "$SERVICE" off
+    sudo networksetup -setsecurewebproxystate "$SERVICE" off
+
     step "Installing the guest agent"
-    sudo rm -rf "$AGENT_APP"
-    sudo cp -R "$TOOLS/DesktopPlaneAgent.app" "$AGENT_APP"
-    sudo xattr -dr com.apple.quarantine "$AGENT_APP" 2>/dev/null || true
+    # Replace the launcher only if it changed: it carries the permission grants.
+    if ! cmp -s "$TOOLS/DesktopPlaneAgent.app/Contents/MacOS/DesktopPlaneAgent" "$AGENT_APP/Contents/MacOS/DesktopPlaneAgent"; then
+      sudo rm -rf "$AGENT_APP"
+      sudo cp -R "$TOOLS/DesktopPlaneAgent.app" "$AGENT_APP"
+      sudo xattr -dr com.apple.quarantine "$AGENT_APP" 2>/dev/null || true
+    fi
+    sudo mkdir -p "/Library/Application Support/DesktopPlane"
+    sudo cp "$TOOLS/agent-core" "/Library/Application Support/DesktopPlane/agent-core"
+    sudo chmod 755 "/Library/Application Support/DesktopPlane/agent-core"
 
     step "Letting the agent set the clock after a snapshot restore"
     echo "$ME ALL=(root) NOPASSWD: /bin/date" | sudo tee /etc/sudoers.d/desktopplane >/dev/null
@@ -131,7 +152,7 @@ enum GuestTools {
     <plist version="1.0">
     <dict>
       <key>Label</key><string>$LABEL</string>
-      <key>ProgramArguments</key><array><string>$AGENT_APP/Contents/MacOS/GuestAgent</string></array>
+      <key>ProgramArguments</key><array><string>$AGENT_APP/Contents/MacOS/DesktopPlaneAgent</string></array>
       <key>RunAtLoad</key><true/>
       <key>KeepAlive</key><true/>
       <key>LimitLoadToSessionType</key><string>Aqua</string>
@@ -147,7 +168,7 @@ enum GuestTools {
     launchctl bootstrap "gui/$UID" "$PLIST"
 
     step "Permissions"
-    echo "Turn on 'Desktop Plane Agent' (or GuestAgent) under BOTH:"
+    echo "Turn on 'Desktop Plane Agent' under BOTH:"
     echo "  Privacy & Security > Accessibility"
     echo "  Privacy & Security > Screen & System Audio Recording"
     echo "If it is not listed, click + and pick $AGENT_APP."
@@ -166,7 +187,6 @@ enum GuestTools {
     done
 
     step "Locking the network down (the VM's only way out becomes the host proxy)"
-    SERVICE="$(networksetup -listallnetworkservices | sed 1d | grep -v '^\*' | head -1)"
     sudo networksetup -setmanual "$SERVICE" 10.0.2.15 255.255.255.0 10.0.2.2
     sudo networksetup -setdnsservers "$SERVICE" 10.0.2.2
     sudo networksetup -setv6off "$SERVICE"

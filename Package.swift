@@ -8,6 +8,7 @@ let package = Package(
         .executable(name: "planed", targets: ["planed"]),
         .executable(name: "DesktopPlane", targets: ["DesktopPlane"]),
         .executable(name: "GuestAgent", targets: ["GuestAgent"]),
+        .executable(name: "AgentLauncher", targets: ["AgentLauncher"]),
     ],
     targets: [
         // Shared, dependency-free pieces: wire formats, egress policy, packet builders.
@@ -16,7 +17,9 @@ let package = Package(
         .target(name: "PlaneHost", dependencies: ["PlaneCore"]),
         .executableTarget(name: "planed", dependencies: ["PlaneHost"]),
         .executableTarget(name: "DesktopPlane", dependencies: ["PlaneHost"]),
-        // Runs inside each macOS guest.
+        // Runs inside each macOS guest: the launcher holds the permission grants and never
+        // changes; it runs GuestAgent, which can be updated freely.
+        .executableTarget(name: "AgentLauncher"),
         .executableTarget(name: "GuestAgent", dependencies: ["PlaneCore"]),
         .testTarget(name: "PlaneCoreTests", dependencies: ["PlaneCore"]),
     ],

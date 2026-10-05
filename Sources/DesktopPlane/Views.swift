@@ -50,6 +50,7 @@ struct MainView: View {
                 ImageSection()
                 SessionsSection()
                 ConnectSection()
+                SettingsSection()
                 LogSection()
             }
             .padding(24)

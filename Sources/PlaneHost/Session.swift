@@ -20,6 +20,8 @@ public final class Session: NSObject, Identifiable {
     public internal(set) var detail = ""
     public internal(set) var vm: VZVirtualMachine?
     let dir: URL
+    /// The image slot this session was cloned from. Its machine identity is in use while it runs.
+    var slot: URL?
     var lan: VirtualLAN?
     var mcp: [String: MCPBridge] = [:]
     var proxyListener: VZVirtioSocketListener?

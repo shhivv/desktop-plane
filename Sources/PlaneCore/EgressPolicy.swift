@@ -24,6 +24,16 @@ public struct EgressPolicy: Codable, Sendable, Equatable {
         self.ports = ports
     }
 
+    /// Missing fields take their defaults, so `{"enabled": false}` or `{"allow": [...]}` work.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = EgressPolicy()
+        enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? d.enabled
+        allow = try c.decodeIfPresent([String].self, forKey: .allow) ?? d.allow
+        deny = try c.decodeIfPresent([String].self, forKey: .deny) ?? d.deny
+        ports = try c.decodeIfPresent([Int].self, forKey: .ports) ?? d.ports
+    }
+
     public enum Verdict: Equatable, Sendable {
         case allowed
         case denied(String)

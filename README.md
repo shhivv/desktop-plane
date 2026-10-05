@@ -8,7 +8,7 @@ the [arc-cua](https://github.com/shhivv/arc-cua) driver inside, reachable as an 
 POST /v1/sessions  ->  { mcp_url, token }  ->  claude mcp add --transport http desk <mcp_url> ...
 ```
 
-- **Fast:** each desktop restores from a saved snapshot of an APFS copy-on-write clone, in seconds.
+- **Fast:** each desktop restores from a saved snapshot of an APFS copy-on-write clone, in about 10 seconds, with both slots starting at once.
 - **Throwaway:** each session gets its own clone; ending it deletes the clone. Nothing carries over.
 - **Isolated:** VMs have no route to each other, the host, or your LAN (see below).
 - **One Swift package, no dependencies:** a menu bar app, a headless daemon, and a tiny guest agent.
@@ -45,11 +45,40 @@ In the window, build the golden image once:
 
    When it says Done, shut the VM down from the Apple menu.
 3. **Snapshot.** Boots the image in its locked-down runtime configuration, checks the agent,
-   and saves the machine state every desktop restores from.
+   and saves the machine state every desktop restores from. It does this once per slot: two
+   VMs restored from snapshots with the same machine identity can't run at once, so each slot
+   gets its own identity and snapshot.
 
 Headless alternative (same engine): `planed image install`, `planed image provision`,
 `planed image finalize`, then `planed serve`. `scripts/dev.sh <args>` runs a debug build of
 `planed` with the needed entitlement.
+
+### Settings
+
+Set VM size and host options in the app's **Settings** section or with `planed config`. Both
+write `~/Library/Application Support/DesktopPlane/settings.json`, and a running host picks up
+changes within 2 seconds.
+
+```bash
+planed config                                  # show settings and what this Mac has
+planed config set cpus=6 memory=12 slots=2     # VM size, desktops running at once
+planed config set disk=120                     # disk size for the next image install
+planed config set ttl=3600 idle=900 port=7480 bind=127.0.0.1
+```
+
+CPU and memory are part of the snapshot, so changing them means re-running step 3 (about a
+minute per slot). Disk size applies when the image is installed. The address and port apply
+immediately.
+
+### Updating the guest agent
+
+Inside the guest, `DesktopPlaneAgent.app` is a tiny launcher that holds the Accessibility and
+Screen Recording grants, and it runs the agent itself (`agent-core`) as a child that inherits
+them. To update the agent in an existing image without booting it or granting anything again:
+
+```bash
+planed image update-agent && planed image finalize
+```
 
 ## Use
 
@@ -77,8 +106,7 @@ network activity), or when the guest shuts down.
 From the menu bar you can **Watch** any desktop live. Watching blocks your input; **Take Control**
 lets you use the desktop yourself.
 
-Settings live in `~/Library/Application Support/DesktopPlane/settings.json`: port, bind
-address, VM size, TTLs, and `guestMCPCommand` to run something other than `arc-cua mcp`.
+`guestMCPCommand` in settings.json runs something other than `arc-cua mcp` per MCP session.
 
 ## Isolation model
 
@@ -111,6 +139,7 @@ Sources/PlaneCore      wire formats, egress policy, dead-end LAN packets (unit-t
 Sources/PlaneHost      VMs, image builder, sessions, egress proxy, HTTP API, self-test
 Sources/planed         headless host + image CLI
 Sources/DesktopPlane   SwiftUI menu bar app
+Sources/AgentLauncher  guest launcher app that holds the guest's permissions (kept unchanged)
 Sources/GuestAgent     agent inside each VM: vsock control, MCP, screenshots, proxy forwarder
 ```
 

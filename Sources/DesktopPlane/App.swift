@@ -14,12 +14,29 @@ struct DesktopPlaneApp: App {
         MenuBarExtra {
             MenuContent().environmentObject(model)
         } label: {
-            Image(systemName: model.liveCount > 0 ? "macwindow.on.rectangle" : "macwindow")
+            MenuBarIcon().environmentObject(model)
         }
         Window("Desktop Plane", id: "main") {
             MainView().environmentObject(model).frame(minWidth: 720, minHeight: 640)
         }
         .windowResizability(.contentMinSize)
+    }
+}
+
+/// The menu bar icon. It appears at launch, so it also opens the setup window for a first run.
+struct MenuBarIcon: View {
+    @EnvironmentObject var model: AppModel
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        Image(systemName: model.liveCount > 0 ? "macwindow.on.rectangle" : "macwindow")
+            .onAppear {
+                let forced = ProcessInfo.processInfo.environment["DP_OPEN_WINDOW"] != nil
+                if model.imageStage != .ready || forced {
+                    openWindow(id: "main")
+                    NSApp.activate(ignoringOtherApps: true)
+                }
+            }
     }
 }
 

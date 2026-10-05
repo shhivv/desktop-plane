@@ -41,13 +41,19 @@ public final class SessionManager: ObservableObject {
         }
         let ttl = min(max(req.ttl_seconds ?? settings.defaultTTLSeconds, 60), settings.maxTTLSeconds)
         let idle = max(req.idle_timeout_seconds ?? settings.defaultIdleTimeoutSeconds, 60)
+        // A slot whose machine identity is not running already: two restores of one identity
+        // cannot run at once. If every slot is taken (settings allow more VMs than slots),
+        // reuse slot 0; that session cold boots instead of restoring.
+        let used = Set(live.compactMap { $0.slot })
+        let slot = image.slotImages().first { !used.contains($0.dir) } ?? image
         let s = Session(ttl: TimeInterval(ttl), idleTimeout: TimeInterval(idle), policy: req.network ?? EgressPolicy())
+        s.slot = slot.dir
         s.onChange = { [weak self] in self?.objectWillChange.send() }
         s.onGuestStopped = { [weak self] s in Task { await self?.destroy(s.id, reason: "guest stopped") } }
         sessions.append(s)
         Log.info("creating (ttl \(ttl)s, idle \(idle)s, egress \(s.policy.enabled ? "on" : "off"))", session: s.id)
         do {
-            try await s.boot(image: image, settings: settings)
+            try await s.boot(image: slot, settings: settings)
         } catch {
             Log.error("boot failed: \(error.localizedDescription)", session: s.id)
             await s.teardown()

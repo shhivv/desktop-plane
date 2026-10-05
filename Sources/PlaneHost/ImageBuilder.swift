@@ -33,7 +33,8 @@ public final class ImageBuilder: NSObject, ObservableObject {
 
     // MARK: 1. install
 
-    public func install(diskGB: Int = 80) async throws {
+    public func install(diskGB: Int? = nil) async throws {
+        let diskGB = diskGB ?? HostSettings.load().diskGB
         busy = true
         defer { busy = false; progress = nil }
         try Paths.ensure()
@@ -109,6 +110,7 @@ public final class ImageBuilder: NSObject, ObservableObject {
         for f in [image.disk, image.aux] { chmod(f.path, 0o600) }
         chmod(image.state.path, 0o600)
         try? FileManager.default.removeItem(at: image.state)
+        try? FileManager.default.removeItem(at: image.slotsDir)
         image.meta.stage = .installed
         try image.save()
         let settings = HostSettings.load()
@@ -136,30 +138,72 @@ public final class ImageBuilder: NSObject, ObservableObject {
     // MARK: 3. finalize
 
     public func finalize() async throws {
-        guard var image else { throw PlaneError("install the image first") }
+        guard let image else { throw PlaneError("install the image first") }
         guard image.meta.stage != .installed else { throw PlaneError("provision the image first") }
         busy = true
         defer { busy = false }
         let settings = HostSettings.load()
-        try? FileManager.default.removeItem(at: image.state)
-        for f in [image.disk, image.aux] { chmod(f.path, 0o600) }
+        let fm = FileManager.default
+        for f in [image.disk, image.aux, image.state] { chmod(f.path, 0o600) }
+        try? fm.removeItem(at: image.state)
+        try? fm.removeItem(at: image.slotsDir)
 
+        // Extra slots fork from the disk as provisioning left it (cleanly shut down), each
+        // with its own machine identity, before slot 0 boots and moves on.
+        var slots = [image]
+        for n in 1..<max(settings.maxVMs, 1) {
+            let dir = image.slotsDir.appendingPathComponent(String(n))
+            try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+            var meta = image.meta
+            meta.name = "\(image.meta.name)-slot\(n)"
+            meta.macAddress = VZMACAddress.randomLocallyAdministered().string
+            meta.stage = .provisioned
+            let slot = VMImage(dir: dir, meta: meta)
+            try Session.clone(image.disk, to: slot.disk)
+            try Session.clone(image.aux, to: slot.aux)
+            for f in [slot.disk, slot.aux] { chmod(f.path, 0o600) }
+            try fm.copyItem(at: image.hardwareModelFile, to: slot.hardwareModelFile)
+            try VZMacMachineIdentifier().dataRepresentation.write(to: slot.machineIDFile)
+            try slot.save()
+            slots.append(slot)
+        }
+
+        var reply: ControlReply?
+        for (n, slot) in slots.enumerated() {
+            let prefix = slots.count > 1 ? "Slot \(n + 1) of \(slots.count): " : ""
+            reply = try await snapshot(slot, settings: settings, prefix: prefix)
+        }
+        set("Ready: \(slots.count) slot\(slots.count == 1 ? "" : "s"). arc-cua \(reply?.arcCUA ?? "?"), agent \(reply?.agentVersion ?? "?").")
+    }
+
+    /// Boots one slot in the runtime configuration, waits for the agent, and saves its state.
+    private func snapshot(_ slot: VMImage, settings: HostSettings, prefix: String) async throws -> ControlReply {
+        var slot = slot
         let lan = try VirtualLAN(session: "finalize")
         defer { lan.close() }
-        let config = try VMFactory.configuration(image: image, disk: image.disk, aux: image.aux,
+        let config = try VMFactory.configuration(image: slot, disk: slot.disk, aux: slot.aux,
                                                  cpus: settings.cpusPerVM, memoryGB: settings.memoryGBPerVM,
                                                  purpose: .runtime(nic: lan.guestEnd))
         try config.validateSaveRestoreSupport()
         let vm = VZVirtualMachine(configuration: config)
-        set("Booting the runtime configuration")
+        provisioningVM = vm // lets a caller show it while it boots
+        defer { provisioningVM = nil }
+        set(prefix + "Booting the runtime configuration")
         try await vm.start()
 
-        set("Waiting for the guest agent")
+        set(prefix + "Waiting for the guest agent")
         let link = try GuestLink(vm: vm)
         var reply: ControlReply?
         let deadline = Date().addingTimeInterval(300)
+        var attempts = 0
         while Date() < deadline {
-            if let r = try? await link.control(.init(kind: .ping), timeout: 3) { reply = r; break }
+            do {
+                reply = try await link.control(.init(kind: .ping), timeout: 3)
+                break
+            } catch {
+                attempts += 1
+                if attempts % 15 == 1 { Log.info("agent not answering yet: \(error)") }
+            }
             try await Task.sleep(nanoseconds: 1_000_000_000)
         }
         guard let reply else {
@@ -173,23 +217,23 @@ public final class ImageBuilder: NSObject, ObservableObject {
         if !reply.screenRecording { Log.warn("guest agent has no Screen Recording permission; screenshots will fail") }
 
         // Let login items and background work settle, so restored sessions start quiet.
-        set("Letting the desktop settle")
+        set(prefix + "Letting the desktop settle")
         try await Task.sleep(nanoseconds: 30_000_000_000)
 
-        set("Saving machine state")
+        set(prefix + "Saving machine state")
         try await vm.pause()
-        try await vm.saveMachineStateTo(url: image.state)
+        try await vm.saveMachineStateTo(url: slot.state)
         // Never resume: the disk must stay exactly as it was when the state was saved.
         try await vm.stop()
 
-        image.meta.stage = .ready
-        image.meta.finalized = Date()
-        image.meta.cpus = settings.cpusPerVM
-        image.meta.memoryGB = settings.memoryGBPerVM
-        try image.save()
+        slot.meta.stage = .ready
+        slot.meta.finalized = Date()
+        slot.meta.cpus = settings.cpusPerVM
+        slot.meta.memoryGB = settings.memoryGBPerVM
+        try slot.save()
         // The golden files are read-only from here on; sessions only ever get clones.
-        for f in [image.disk, image.aux, image.state] { chmod(f.path, 0o400) }
-        set("Ready. arc-cua \(reply.arcCUA ?? "?"), agent \(reply.agentVersion).")
+        for f in [slot.disk, slot.aux, slot.state] { chmod(f.path, 0o400) }
+        return reply
     }
 }
 

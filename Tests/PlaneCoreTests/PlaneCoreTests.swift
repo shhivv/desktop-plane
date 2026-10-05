@@ -33,6 +33,17 @@ final class EgressPolicyTests: XCTestCase {
     }
 }
 
+final class EgressPolicyDecodingTests: XCTestCase {
+    func testPartialJSONUsesDefaults() throws {
+        let p = try JSONDecoder().decode(EgressPolicy.self, from: Data(#"{"enabled": false}"#.utf8))
+        XCTAssertFalse(p.enabled)
+        XCTAssertEqual(p.ports, [80, 443])
+        let q = try JSONDecoder().decode(EgressPolicy.self, from: Data(#"{"allow": ["github.com"]}"#.utf8))
+        XCTAssertTrue(q.enabled)
+        XCTAssertEqual(q.allow, ["github.com"])
+    }
+}
+
 final class DeadEndLANTests: XCTestCase {
     let guestMAC: [UInt8] = [0x02, 0, 0, 0, 0, 1]
 

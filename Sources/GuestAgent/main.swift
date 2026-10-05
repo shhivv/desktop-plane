@@ -1,12 +1,15 @@
-// Desktop Plane guest agent. Runs inside the macOS guest as a LaunchAgent in the logged-in
-// session, which is where Accessibility and Screen Recording are granted. Children it spawns
-// (arc-cua) inherit those grants.
+// Desktop Plane guest agent. Runs inside the macOS guest in the logged-in session, which is
+// where Accessibility and Screen Recording are granted. Children it spawns (arc-cua) inherit
+// those grants.
 //
-// vsock ports (guest side):
-//   1000 control     ping / hello (clock sync)
-//   1001 mcp         one `arc-cua mcp` process per connection, stdio = the socket
-//   1002 screenshot  one PNG per connection
-// TCP 127.0.0.1:3128  forwards to the host egress proxy at vsock 2:2000
+// It runs as a child of DesktopPlaneAgent.app (AgentLauncher), which holds the permissions,
+// so this binary can be updated without granting them again.
+//
+// vsock ports (guest side), see PlaneCore.VsockPort:
+//   52000 control     ping / hello (clock sync)
+//   52001 mcp         one `arc-cua mcp` process per connection, stdio = the socket
+//   52002 screenshot  one PNG per connection
+// TCP 127.0.0.1:3128  forwards to the host egress proxy at vsock 2:52100
 
 import ApplicationServices
 import CoreGraphics

@@ -10,9 +10,15 @@ import Virtualization
 ///       hardware-model.bin
 ///       machine-id.bin
 ///       state.vzvmsave        saved RAM + device state, written by finalize
+///       slots/1/              the same layout again for the second slot
 ///
 /// Sessions never touch these files: they get APFS clones of disk.img and aux.img, and
 /// restore from state.vzvmsave.
+///
+/// Why a second slot: two VMs restored from snapshots with the same machine identifier
+/// cannot run at once (Virtualization fails the second restore with "invalid argument").
+/// So each slot has its own identifier, MAC and snapshot, and a session takes a slot whose
+/// identity is not already running.
 public struct VMImage: Sendable {
     public enum Stage: String, Codable, Sendable {
         /// macOS installed, Setup Assistant not done yet.
@@ -45,17 +51,29 @@ public struct VMImage: Sendable {
     public var machineIDFile: URL { dir.appendingPathComponent("machine-id.bin") }
     public var state: URL { dir.appendingPathComponent("state.vzvmsave") }
     var metaFile: URL { dir.appendingPathComponent("image.json") }
+    var slotsDir: URL { dir.appendingPathComponent("slots") }
+
+    /// This image (slot 0) followed by its other slots, if they are ready.
+    public func slotImages() -> [VMImage] {
+        var out = [self]
+        let dirs = (try? FileManager.default.contentsOfDirectory(at: slotsDir, includingPropertiesForKeys: nil)) ?? []
+        for d in dirs.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
+            if let v = VMImage.load(from: d), v.meta.stage == .ready { out.append(v) }
+        }
+        return out
+    }
+
+    static func load(from dir: URL) -> VMImage? {
+        let dec = JSONDecoder()
+        dec.dateDecodingStrategy = .iso8601
+        guard let data = try? Data(contentsOf: dir.appendingPathComponent("image.json")),
+              let meta = try? dec.decode(Meta.self, from: data) else { return nil }
+        return VMImage(dir: dir, meta: meta)
+    }
 
     public static func dir(named name: String) -> URL { Paths.images.appendingPathComponent(name) }
 
-    public static func load(named name: String) -> VMImage? {
-        let d = dir(named: name)
-        let dec = JSONDecoder()
-        dec.dateDecodingStrategy = .iso8601
-        guard let data = try? Data(contentsOf: d.appendingPathComponent("image.json")),
-              let meta = try? dec.decode(Meta.self, from: data) else { return nil }
-        return VMImage(dir: d, meta: meta)
-    }
+    public static func load(named name: String) -> VMImage? { load(from: dir(named: name)) }
 
     public func save() throws {
         let enc = JSONEncoder()
