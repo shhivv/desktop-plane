@@ -38,7 +38,7 @@ public enum SelfTest {
 
         print("Creating two sessions…")
         let t0 = Date()
-        async let ca = call("POST", "/v1/sessions", token: admin, body: ["ttl_seconds": 600])
+        async let ca = call("POST", "/v1/sessions", token: admin, body: ["ttl_seconds": 600, "open": ["TextEdit"]])
         async let cb = call("POST", "/v1/sessions", token: admin, body: ["ttl_seconds": 600, "network": ["enabled": false]])
         let (ra, rb) = await (ca, cb)
         let a = json(ra.1), b = json(rb.1)
@@ -73,6 +73,31 @@ public enum SelfTest {
                             body: ["jsonrpc": "2.0", "id": 2, "method": "tools/list"], headers: ["Mcp-Session-Id": mid])
         let tools = ((json(rl.1)["result"] as? [String: Any])?["tools"] as? [[String: Any]])?.compactMap { $0["name"] as? String } ?? []
         check("MCP tools/list", !tools.isEmpty, tools.prefix(8).joined(separator: ", "))
+        // The driver itself: find TextEdit, type into it, read the text back exactly.
+        func tool(_ name: String, _ args: [String: Any], id: Int) async -> [String: Any] {
+            let r = await call("POST", "/v1/sessions/\(aid)/mcp", token: atok,
+                               body: ["jsonrpc": "2.0", "id": id, "method": "tools/call", "params": ["name": name, "arguments": args]],
+                               headers: ["Mcp-Session-Id": mid])
+            let content = ((json(r.1)["result"] as? [String: Any])?["content"] as? [[String: Any]]) ?? []
+            let text = content.first { $0["type"] as? String == "text" }?["text"] as? String ?? ""
+            return (try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any]) ?? ["raw": text]
+        }
+        let apps = (await tool("apps", [:], id: 10))["apps"] as? [[String: Any]] ?? []
+        let pid = apps.first { $0["name"] as? String == "TextEdit" }?["pid"] as? Int
+        check("session opened TextEdit", pid != nil, apps.compactMap { $0["name"] as? String }.joined(separator: ", "))
+        if let pid {
+            let snap = await tool("observe", ["pid": pid], id: 11)
+            let area = (snap["elements"] as? [[String: Any]])?.first { $0["role"] as? String == "TextArea" }?["id"] as? String
+            check("arc-cua observes TextEdit", area != nil, "\(snap["window"] ?? snap["raw"] ?? "")")
+            if let area, let sid = snap["snapshot"] as? String {
+                let sample = "arc-cua typed this: it's \"exact\" -- teh ok"
+                let r = await tool("act", ["snapshot": sid, "action": "TYPE_TEXT", "element": area, "value": sample], id: 12)
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                let after = await tool("observe", ["pid": pid], id: 13)
+                let value = (after["elements"] as? [[String: Any]])?.first { $0["id"] as? String == area }?["value"] as? String
+                check("arc-cua types exact text (no autocorrect)", value == sample, "\(r["status"] ?? r["raw"] ?? "") → \(value ?? "nil")")
+            }
+        }
         if tools.contains("status") {
             let rs = await call("POST", "/v1/sessions/\(aid)/mcp", token: atok,
                                 body: ["jsonrpc": "2.0", "id": 3, "method": "tools/call",
@@ -109,6 +134,11 @@ public enum SelfTest {
             for (name, cmd, ok) in probes {
                 let out = (try? await guestShell(sa, cmd)) ?? "error"
                 check(name, ok(out.trimmingCharacters(in: .whitespacesAndNewlines)), out)
+            }
+            for (label, sess) in [("A", sa), ("B", service.manager.session(bid))] {
+                guard let sess else { continue }
+                let out = (try? await guestShell(sess, "pgrep -x 'Setup Assistant' >/dev/null && echo present || echo clear")) ?? ""
+                check("no Setup Assistant on desktop \(label)", out.contains("clear"), out)
             }
             if rb.0 == 201, let sb = service.manager.session(bid) {
                 let out = (try? await guestShell(sb, "\(curl) \(proxy) http://example.com")) ?? "error"
@@ -166,17 +196,8 @@ public enum SelfTest {
         return failed == 0
     }
 
-    /// Runs a shell command in the guest through the agent's MCP port (host-only test hook:
-    /// tenants cannot choose the command; only the host writes this header).
     static func guestShell(_ s: Session, _ cmd: String) async throws -> String {
-        let fd = try await s.link.connect(port: VsockPort.guestMCP)
-        return try await GuestLink.blocking(timeout: 30, fd: fd) {
-            defer { close(fd) }
-            try FD.writeAll(fd, Data("#!cmd \(cmd) </dev/null\n".utf8))
-            var out = Data()
-            while let chunk = try? FD.readSome(fd), !chunk.isEmpty { out.append(chunk) }
-            return String(decoding: out, as: UTF8.self)
-        }
+        try await s.link.shell(cmd)
     }
 
     /// The host's primary LAN IPv4 address, to prove the guest cannot reach it.

@@ -15,6 +15,11 @@ import Foundation
 /// The disk changes, so the image goes back to `provisioned` and needs a new snapshot.
 public enum AgentUpdater {
     static let bundleID = "dev.desktopplane.agent"
+    static let textSubstitutionKeys = [
+        "NSAutomaticSpellingCorrectionEnabled", "NSAutomaticCapitalizationEnabled", "NSAutomaticPeriodSubstitutionEnabled",
+        "NSAutomaticQuoteSubstitutionEnabled", "NSAutomaticDashSubstitutionEnabled", "NSAutomaticTextCompletionEnabled",
+        "NSAutomaticInlinePredictionEnabled", "WebAutomaticSpellingCorrectionEnabled",
+    ]
 
     @MainActor
     public static func update(image: VMImage) throws -> String {
@@ -22,7 +27,7 @@ public enum AgentUpdater {
         for f in [image.disk, image.aux] { chmod(f.path, 0o600) }
         let (devices, mounts) = try attach(image.disk)
         defer { detach(devices) }
-        guard let data = mounts.first(where: { FileManager.default.fileExists(atPath: $0.appendingPathComponent("Users").path) }) else {
+        guard let data = mounts.first(where: isDataVolume) else {
             throw PlaneError("could not find the guest's Data volume in \(mounts.map(\.path))")
         }
         var notes: [String] = []
@@ -54,7 +59,10 @@ public enum AgentUpdater {
         }
 
         // 3. LaunchAgents point at the launcher; removable volumes are pre-approved for it.
-        let users = (try? fm.contentsOfDirectory(at: data.appendingPathComponent("Users"), includingPropertiesForKeys: nil)) ?? []
+        // Real home folders only (not Shared, .localized and the like).
+        let users = ((try? fm.contentsOfDirectory(at: data.appendingPathComponent("Users"), includingPropertiesForKeys: nil)) ?? [])
+            .filter { !$0.lastPathComponent.hasPrefix(".") && $0.lastPathComponent != "Shared" }
+            .filter { fm.fileExists(atPath: $0.appendingPathComponent("Library/Preferences").path) }
         if fm.fileExists(atPath: appDst.path) {
             let req = try requirementHex(app: appDst)
             for home in users {
@@ -68,6 +76,28 @@ public enum AgentUpdater {
                 notes.append("removable volumes allowed for \(home.lastPathComponent)")
             }
         }
+        // The agent may set the clock (after restores) and shut the VM down (image builds).
+        // Rewritten in place: sudo only trusts the file while it stays root-owned and 0440.
+        let sudoers = data.appendingPathComponent("private/etc/sudoers.d/desktopplane")
+        if let user = users.first?.lastPathComponent, fm.fileExists(atPath: sudoers.path) {
+            chmod(sudoers.path, 0o640)
+            defer { chmod(sudoers.path, 0o440) }
+            let h = try FileHandle(forWritingTo: sudoers)
+            try h.truncate(atOffset: 0)
+            try h.write(contentsOf: Data("\(user) ALL=(root) NOPASSWD: /bin/date, /sbin/shutdown\n".utf8))
+            try h.close()
+            notes.append("sudo rule updated")
+        }
+
+        // Agents type exact text: no autocorrect, auto-capitalisation or smart punctuation.
+        for home in users {
+            // `defaults` takes a plist path without its extension.
+            let prefs = home.appendingPathComponent("Library/Preferences/.GlobalPreferences")
+            for key in textSubstitutionKeys {
+                try run("/usr/bin/defaults", ["write", prefs.path, key, "-bool", "false"])
+            }
+            notes.append("text substitutions off for \(home.lastPathComponent)")
+        }
         for home in users {
             let plistURL = home.appendingPathComponent("Library/LaunchAgents/\(bundleID).plist")
             guard let d = try? Data(contentsOf: plistURL),
@@ -78,7 +108,7 @@ public enum AgentUpdater {
         }
 
         try? fm.removeItem(at: image.state)
-        try? fm.removeItem(at: image.slotsDir)
+        for f in [image.coldDisk, image.coldAux] { try? fm.removeItem(at: f) }
         image.meta.stage = .provisioned
         try image.save()
         notes.append("image needs a new snapshot")
@@ -105,6 +135,17 @@ public enum AgentUpdater {
         defer { try? FileManager.default.removeItem(at: blob) }
         _ = try run("/usr/bin/csreq", ["-r=" + requirement, "-b", blob.path])
         return try Data(contentsOf: blob).map { String(format: "%02X", $0) }.joined()
+    }
+
+    /// The guest's Data volume: it has the home folders and, unlike the system volume (which
+    /// shows the same folders through firmlinks), it is not sealed. Never write to the sealed
+    /// system volume.
+    static func isDataVolume(_ mount: URL) -> Bool {
+        guard FileManager.default.fileExists(atPath: mount.appendingPathComponent("Users").path),
+              let out = try? run("/usr/sbin/diskutil", ["info", "-plist", mount.path]),
+              let info = try? PropertyListSerialization.propertyList(from: Data(out.utf8), format: nil) as? [String: Any]
+        else { return false }
+        return (info["Sealed"] as? String) != "Yes" && (info["SystemImage"] as? Bool) != true
     }
 
     static func attach(_ disk: URL) throws -> ([String], [URL]) {

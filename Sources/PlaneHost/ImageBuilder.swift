@@ -25,6 +25,12 @@ public final class ImageBuilder: NSObject, ObservableObject {
 
     public var image: VMImage? { VMImage.load(named: name) }
 
+    /// Image builds run for minutes; the Mac must not idle-sleep under them.
+    private func stayAwake() -> NSObjectProtocol {
+        ProcessInfo.processInfo.beginActivity(options: [.idleSystemSleepDisabled, .userInitiated],
+                                              reason: "Building the Desktop Plane image")
+    }
+
     private func set(_ s: String, _ p: Double? = nil) {
         status = s
         progress = p
@@ -36,7 +42,8 @@ public final class ImageBuilder: NSObject, ObservableObject {
     public func install(diskGB: Int? = nil) async throws {
         let diskGB = diskGB ?? HostSettings.load().diskGB
         busy = true
-        defer { busy = false; progress = nil }
+        let awake = stayAwake()
+        defer { busy = false; progress = nil; ProcessInfo.processInfo.endActivity(awake) }
         try Paths.ensure()
         let ipsw = try await restoreImageFile()
         set("Loading restore image")
@@ -105,12 +112,13 @@ public final class ImageBuilder: NSObject, ObservableObject {
     public func provision() async throws {
         guard var image else { throw PlaneError("install the image first") }
         busy = true
-        defer { busy = false; provisioningVM = nil }
+        let awake = stayAwake()
+        defer { busy = false; provisioningVM = nil; ProcessInfo.processInfo.endActivity(awake) }
         // Provisioning changes the disk, so any earlier snapshot is void.
         for f in [image.disk, image.aux] { chmod(f.path, 0o600) }
         chmod(image.state.path, 0o600)
         try? FileManager.default.removeItem(at: image.state)
-        try? FileManager.default.removeItem(at: image.slotsDir)
+        for f in [image.coldDisk, image.coldAux] { try? FileManager.default.removeItem(at: f) }
         image.meta.stage = .installed
         try image.save()
         let settings = HostSettings.load()
@@ -144,42 +152,58 @@ public final class ImageBuilder: NSObject, ObservableObject {
         guard let image else { throw PlaneError("install the image first") }
         guard image.meta.stage != .installed else { throw PlaneError("provision the image first") }
         busy = true
-        defer { busy = false }
+        let awake = stayAwake()
+        defer { busy = false; ProcessInfo.processInfo.endActivity(awake) }
         let settings = HostSettings.load()
         let fm = FileManager.default
-        for f in [image.disk, image.aux, image.state] { chmod(f.path, 0o600) }
+        for f in [image.disk, image.aux, image.state, image.coldDisk, image.coldAux] {
+            chmod(f.path, 0o600)
+        }
         try? fm.removeItem(at: image.state)
-        try? fm.removeItem(at: image.slotsDir)
 
-        // Extra slots fork from the disk as provisioning left it (cleanly shut down), each
-        // with its own machine identity, before slot 0 boots and moves on.
-        var slots = [image]
-        for n in 1..<max(settings.maxVMs, 1) {
-            let dir = image.slotsDir.appendingPathComponent(String(n))
-            try fm.createDirectory(at: dir, withIntermediateDirectories: true)
-            var meta = image.meta
-            meta.name = "\(image.meta.name)-slot\(n)"
-            meta.macAddress = VZMACAddress.randomLocallyAdministered().string
-            meta.stage = .provisioned
-            let slot = VMImage(dir: dir, meta: meta)
-            try Session.clone(image.disk, to: slot.disk)
-            try Session.clone(image.aux, to: slot.aux)
-            for f in [slot.disk, slot.aux] { chmod(f.path, 0o600) }
-            try fm.copyItem(at: image.hardwareModelFile, to: slot.hardwareModelFile)
-            try VZMacMachineIdentifier().dataRepresentation.write(to: slot.machineIDFile)
-            try slot.save()
-            slots.append(slot)
-        }
+        for f in [image.coldDisk, image.coldAux] { try? fm.removeItem(at: f) }
 
-        var reply: ControlReply?
-        for (n, slot) in slots.enumerated() {
-            let prefix = slots.count > 1 ? "Slot \(n + 1) of \(slots.count): " : ""
-            reply = try await snapshot(slot, settings: settings, prefix: prefix)
-        }
-        set("Ready: \(slots.count) slot\(slots.count == 1 ? "" : "s"). arc-cua \(reply?.arcCUA ?? "?"), agent \(reply?.agentVersion ?? "?").")
+        // 1. A clean copy for cold boots: boot, then shut down properly, so the copy is a
+        //    cleanly unmounted disk rather than one frozen mid-run by a snapshot.
+        set("Preparing a clean copy for cold boots")
+        try await bootAndShutDown(image, settings: settings)
+        try Session.clone(image.disk, to: image.coldDisk)
+        try Session.clone(image.aux, to: image.coldAux)
+
+        // 2. The snapshot sessions restore.
+        let reply = try await snapshot(image, settings: settings, prefix: "")
+        for f in [image.coldDisk, image.coldAux] { chmod(f.path, 0o400) }
+        set("Ready. arc-cua \(reply.arcCUA ?? "?"), agent \(reply.agentVersion).")
     }
 
-    /// Boots one slot in the runtime configuration, waits for the agent, and saves its state.
+    private func bootAndShutDown(_ image: VMImage, settings: HostSettings) async throws {
+        let lan = try VirtualLAN(session: "finalize")
+        defer { lan.close() }
+        let config = try VMFactory.configuration(image: image, disk: image.disk, aux: image.aux,
+                                                 cpus: settings.cpusPerVM, memoryGB: settings.memoryGBPerVM,
+                                                 purpose: .runtime(nic: lan.guestEnd))
+        let vm = VZVirtualMachine(configuration: config)
+        provisioningVM = vm
+        defer { provisioningVM = nil }
+        try await vm.start()
+        // Wait for the desktop (the agent answers once the user is logged in), then shut down.
+        let link = try GuestLink(vm: vm)
+        let deadline = Date().addingTimeInterval(300)
+        while Date() < deadline {
+            if (try? await link.control(.init(kind: .ping), timeout: 3)) != nil { break }
+            try await Task.sleep(nanoseconds: 1_000_000_000)
+        }
+        // The virtual power button only raises a "shut down?" dialog; ask the guest instead.
+        _ = try? await link.shell("sudo -n /sbin/shutdown -h now", timeout: 10)
+        let stopBy = Date().addingTimeInterval(120)
+        while vm.state != .stopped, Date() < stopBy { try await Task.sleep(nanoseconds: 500_000_000) }
+        if vm.state != .stopped {
+            Log.warn("guest did not shut down within 2 minutes; powering off")
+            try await vm.stop()
+        }
+    }
+
+    /// Boots the image in the runtime configuration, waits for the agent, and saves its state.
     private func snapshot(_ slot: VMImage, settings: HostSettings, prefix: String) async throws -> ControlReply {
         var slot = slot
         let lan = try VirtualLAN(session: "finalize")

@@ -130,11 +130,11 @@ public struct HostSettings: Codable, Sendable {
     }
 
     /// Whether the golden image's snapshots were taken with different CPU/memory than these
-    /// settings, or there are fewer snapshot slots than running VMs allowed. Sessions keep using the snapshot's size until the image is re-snapshotted.
+    /// settings. Sessions keep using the snapshot's size until the image is re-snapshotted.
     public func needsResnapshot(_ image: VMImage?) -> Bool {
         guard let image, image.meta.stage == .ready else { return false }
         let m = image.meta
-        return m.cpus != cpusPerVM || m.memoryGB != memoryGBPerVM || image.slotImages().count < maxVMs
+        return m.cpus != cpusPerVM || m.memoryGB != memoryGBPerVM
     }
 }
 

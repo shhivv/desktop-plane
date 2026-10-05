@@ -148,7 +148,7 @@ case "config":
     let pairs = args.dropFirst().first == "set" ? Array(args.dropFirst(2)) : []
     if args.dropFirst().first == "set" && pairs.isEmpty { fail("usage: planed config set KEY=VALUE…") }
     for pair in pairs {
-        let kv = pair.split(separator: "=", maxSplits: 1).map(String.init)
+        let kv = pair.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false).map(String.init)
         guard kv.count == 2 else { fail("expected KEY=VALUE, got \(pair)") }
         let (k, v) = (kv[0], kv[1])
         func int() -> Int {

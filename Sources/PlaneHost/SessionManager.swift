@@ -33,6 +33,9 @@ public final class SessionManager: ObservableObject {
         public var network: EgressPolicy?
         /// Id of a data volume to plug in. One session per volume at a time.
         public var volume: String?
+        /// Apps ("Safari") and URLs ("https://…") to open before the session is handed over.
+        /// The driver acts on open windows and cannot launch apps itself.
+        public var open: [String]?
         public init() {}
     }
 
@@ -45,11 +48,9 @@ public final class SessionManager: ObservableObject {
         }
         let ttl = min(max(req.ttl_seconds ?? settings.defaultTTLSeconds, 60), settings.maxTTLSeconds)
         let idle = max(req.idle_timeout_seconds ?? settings.defaultIdleTimeoutSeconds, 60)
-        // A slot whose machine identity is not running already: two restores of one identity
-        // cannot run at once. If every slot is taken (settings allow more VMs than slots),
-        // reuse slot 0; that session cold boots instead of restoring.
-        let used = Set(live.compactMap { $0.slot })
-        let slot = image.slotImages().first { !used.contains($0.dir) } ?? image
+        // A snapshot restore fails if any VM with the image's identity is already running, so
+        // only a session started on an idle host restores; the rest cold boot (see VMImage).
+        let restore = live.isEmpty
         var volume: Volume?
         if let vid = req.volume {
             guard #available(macOS 15.0, *) else { throw APIError(501, "data volumes need macOS 15 or later on the host") }
@@ -57,8 +58,13 @@ public final class SessionManager: ObservableObject {
             if let other = attachedSession(v.id) { throw APIError(409, "volume is in use by \(other)") }
             volume = v
         }
+        let open = req.open ?? []
+        guard open.count <= 10, open.allSatisfy({ !$0.isEmpty && $0.count <= 2048 && !$0.contains("\n") }) else {
+            throw APIError(400, "open takes up to 10 app names or URLs")
+        }
         let s = Session(ttl: TimeInterval(ttl), idleTimeout: TimeInterval(idle), policy: req.network ?? EgressPolicy())
-        s.slot = slot.dir
+        s.open = open
+        s.restoreSnapshot = restore
         // Reserved before any await, so a second request for the same volume sees it taken.
         s.volume = volume
         s.onChange = { [weak self] in self?.objectWillChange.send() }
@@ -66,7 +72,7 @@ public final class SessionManager: ObservableObject {
         sessions.append(s)
         Log.info("creating (ttl \(ttl)s, idle \(idle)s, egress \(s.policy.enabled ? "on" : "off"))", session: s.id)
         do {
-            try await s.boot(image: slot, settings: settings)
+            try await s.boot(image: image, settings: settings)
             if var v = s.volume, let i = volumes.firstIndex(where: { $0.id == v.id }) {
                 v.meta.lastAttached = Date()
                 try? v.save()

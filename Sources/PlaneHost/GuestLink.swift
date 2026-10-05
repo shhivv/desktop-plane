@@ -48,6 +48,20 @@ struct GuestLink {
         }
     }
 
+    /// Runs a shell command in the guest and returns its output. Host-only: it goes through
+    /// the agent's MCP port with a command header only the host writes; tenants' MCP traffic
+    /// always gets the fixed arc-cua command.
+    func shell(_ cmd: String, timeout: TimeInterval = 30) async throws -> String {
+        let fd = try await connect(port: VsockPort.guestMCP)
+        return try await Self.blocking(timeout: timeout, fd: fd) {
+            defer { close(fd) }
+            try FD.writeAll(fd, Data("#!cmd \(cmd) </dev/null\n".utf8))
+            var out = Data()
+            while let chunk = try? FD.readSome(fd), !chunk.isEmpty { out.append(chunk) }
+            return String(decoding: out, as: UTF8.self)
+        }
+    }
+
     /// Runs blocking I/O off the main actor, shutting the socket down if it overruns.
     nonisolated static func blocking<T: Sendable>(timeout: TimeInterval, fd: Int32,
                                                   _ work: @escaping @Sendable () throws -> T) async throws -> T {

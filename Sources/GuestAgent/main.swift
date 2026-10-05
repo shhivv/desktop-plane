@@ -133,6 +133,9 @@ func handleControl(_ fd: Int32) {
     if req.kind == .eject, let name = req.volume {
         error = eject(name)
     }
+    if req.kind == .open, let items = req.open {
+        error = openItems(items)
+    }
     let s = currentStatus()
     let reply = ControlReply(ok: error == nil, agentVersion: version, accessibility: s.accessibility,
                              screenRecording: s.screenRecording, arcCUA: s.arcCUA, error: error,
@@ -154,6 +157,23 @@ func setClock(_ t: Double) -> String? {
     do { try p.run() } catch { return "clock: \(error)" }
     p.waitUntilExit()
     return p.terminationStatus == 0 ? nil : "clock: sudo date failed (\(p.terminationStatus))"
+}
+
+/// Opens apps and URLs so a session starts with something for the driver to act on.
+func openItems(_ items: [String]) -> String? {
+    var failed: [String] = []
+    for item in items {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        p.arguments = item.contains("://") ? [item] : ["-a", item]
+        p.standardOutput = FileHandle.nullDevice
+        p.standardError = FileHandle.nullDevice
+        do { try p.run(); p.waitUntilExit() } catch {}
+        if p.terminationStatus != 0 { failed.append(item) }
+    }
+    // Give windows a moment to appear before the session is handed over.
+    Thread.sleep(forTimeInterval: 1.5)
+    return failed.isEmpty ? nil : "could not open: \(failed.joined(separator: ", "))"
 }
 
 func mountedVolumes() -> [String] {

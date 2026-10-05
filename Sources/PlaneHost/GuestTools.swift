@@ -119,8 +119,8 @@ enum GuestTools {
     sudo cp "$TOOLS/agent-core" "/Library/Application Support/DesktopPlane/agent-core"
     sudo chmod 755 "/Library/Application Support/DesktopPlane/agent-core"
 
-    step "Letting the agent set the clock after a snapshot restore"
-    echo "$ME ALL=(root) NOPASSWD: /bin/date" | sudo tee /etc/sudoers.d/desktopplane >/dev/null
+    step "Letting the agent set the clock after a snapshot restore, and shut the VM down"
+    echo "$ME ALL=(root) NOPASSWD: /bin/date, /sbin/shutdown" | sudo tee /etc/sudoers.d/desktopplane >/dev/null
     sudo chmod 440 /etc/sudoers.d/desktopplane
     sudo visudo -cf /etc/sudoers.d/desktopplane >/dev/null
 
@@ -137,6 +137,12 @@ enum GuestTools {
     sudo pmset -a sleep 0 displaysleep 0 disksleep 0 powernap 0 womp 0
     defaults -currentHost write com.apple.screensaver idleTime -int 0
     defaults write com.apple.loginwindow TALLogoutSavesState -bool false
+    # Agents type exact text: no autocorrect, auto-capitalisation or smart punctuation.
+    for k in NSAutomaticSpellingCorrectionEnabled NSAutomaticCapitalizationEnabled NSAutomaticPeriodSubstitutionEnabled \
+             NSAutomaticQuoteSubstitutionEnabled NSAutomaticDashSubstitutionEnabled NSAutomaticTextCompletionEnabled \
+             NSAutomaticInlinePredictionEnabled WebAutomaticSpellingCorrectionEnabled; do
+      defaults write NSGlobalDomain "$k" -bool false
+    done
     sudo softwareupdate --schedule off >/dev/null 2>&1 || true
     for k in AutomaticDownload AutomaticallyInstallMacOSUpdates CriticalUpdateInstall ConfigDataInstall; do
       sudo defaults write /Library/Preferences/com.apple.SoftwareUpdate "$k" -bool false

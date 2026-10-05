@@ -6,18 +6,23 @@ public struct ControlRequest: Codable, Sendable {
         case ping, hello
         /// Unmount and eject the volume named `volume` before the host unplugs it.
         case eject
+        /// Open each of `open`: an app name ("Safari") or a URL ("https://…").
+        case open
     }
     public var kind: Kind
     public var sessionID: String?
     /// Host wall clock (seconds since 1970). Restored VMs wake with the clock of the snapshot.
     public var hostTime: Double?
     public var volume: String?
+    public var open: [String]?
 
-    public init(kind: Kind, sessionID: String? = nil, hostTime: Double? = nil, volume: String? = nil) {
+    public init(kind: Kind, sessionID: String? = nil, hostTime: Double? = nil, volume: String? = nil,
+                open: [String]? = nil) {
         self.kind = kind
         self.sessionID = sessionID
         self.hostTime = hostTime
         self.volume = volume
+        self.open = open
     }
 }
 

@@ -8,7 +8,7 @@ the [arc-cua](https://github.com/shhivv/arc-cua) driver inside, reachable as an 
 POST /v1/sessions  ->  { mcp_url, token }  ->  claude mcp add --transport http desk <mcp_url> ...
 ```
 
-- **Fast:** each desktop restores from a saved snapshot of an APFS copy-on-write clone, in about 10 seconds, with both slots starting at once.
+- **Fast:** a desktop restores from a saved snapshot of an APFS copy-on-write clone in about 6–9 seconds. A second desktop started while one is running cold boots in about 15–20 seconds (see below).
 - **Throwaway:** each session gets its own clone; ending it deletes the clone. Nothing carries over.
 - **Isolated:** VMs have no route to each other, the host, or your LAN (see below).
 - **One Swift package, no dependencies:** a menu bar app, a headless daemon, and a tiny guest agent.
@@ -45,9 +45,12 @@ In the window, build the golden image once:
 
    When it says Done, shut the VM down from the Apple menu.
 3. **Snapshot.** Boots the image in its locked-down runtime configuration, checks the agent,
-   and saves the machine state every desktop restores from. It does this once per slot: two
-   VMs restored from snapshots with the same machine identity can't run at once, so each slot
-   gets its own identity and snapshot.
+   and saves the machine state every desktop restores from. It also keeps a cleanly shut-down copy of the disk.
+
+   Only one VM restored from a snapshot can run per machine identity, and giving a second VM
+   its own identity makes macOS treat it as a new Mac and show Setup Assistant. So the first
+   running desktop restores the snapshot, and one started while it runs cold boots from the
+   clean copy.
 
 Headless alternative (same engine): `planed image install`, `planed image provision`,
 `planed image finalize`, then `planed serve`. `scripts/dev.sh <args>` runs a debug build of
@@ -67,7 +70,7 @@ planed config set ttl=3600 idle=900 port=7480 bind=127.0.0.1
 ```
 
 CPU and memory are part of the snapshot, so changing them means re-running step 3 (about a
-minute per slot). Disk size applies when the image is installed. The address and port apply
+couple of minutes). Disk size applies when the image is installed. The address and port apply
 immediately.
 
 ### Updating the guest agent
@@ -94,7 +97,7 @@ claude mcp add --transport http desk "$MCP_URL" --header "Authorization: Bearer 
 | Method | Path | Auth | |
 |---|---|---|---|
 | GET | `/v1/health` | none | image stage, free slots |
-| POST | `/v1/sessions` | admin | `ttl_seconds`, `idle_timeout_seconds`, `network: {enabled, allow, deny, ports}` |
+| POST | `/v1/sessions` | admin | `ttl_seconds`, `idle_timeout_seconds`, `network: {enabled, allow, deny, ports}`, `volume`, `open` |
 | GET | `/v1/sessions` | admin | list |
 | GET / DELETE | `/v1/sessions/:id` | admin or session | |
 | POST / DELETE | `/v1/sessions/:id/mcp` | admin or session | MCP Streamable HTTP |
@@ -102,6 +105,13 @@ claude mcp add --transport http desk "$MCP_URL" --header "Authorization: Bearer 
 | POST | `/v1/volumes` | admin | `name`, `size_gb` (default 10) |
 | GET | `/v1/volumes`, `/v1/volumes/:id` | admin | size, bytes used, `attached_to` |
 | DELETE | `/v1/volumes/:id` | admin | refused while attached |
+
+arc-cua acts on windows that are already open and can't launch apps itself, so pass
+`"open": ["Safari", "https://example.com"]` to start a desktop with apps or pages open. Each
+entry is an app name or a URL, up to 10.
+
+The image turns off autocorrect, auto-capitalization and smart punctuation, so text an agent
+types arrives exactly as sent.
 
 A session ends when it is deleted, when its TTL passes, after its idle timeout (no MCP or
 network activity), or when the guest shuts down.

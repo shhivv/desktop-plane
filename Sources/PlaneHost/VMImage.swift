@@ -10,15 +10,16 @@ import Virtualization
 ///       hardware-model.bin
 ///       machine-id.bin
 ///       state.vzvmsave        saved RAM + device state, written by finalize
-///       slots/1/              the same layout again for the second slot
+///       cold-disk.img         the disk as provisioning left it (cleanly shut down)
+///       cold-aux.img
 ///
-/// Sessions never touch these files: they get APFS clones of disk.img and aux.img, and
-/// restore from state.vzvmsave.
+/// Sessions never touch these files: they get APFS clones and boot from those.
 ///
-/// Why a second slot: two VMs restored from snapshots with the same machine identifier
-/// cannot run at once (Virtualization fails the second restore with "invalid argument").
-/// So each slot has its own identifier, MAC and snapshot, and a session takes a slot whose
-/// identity is not already running.
+/// Only one VM restored from a snapshot can run per machine identity at a time
+/// (Virtualization fails a second restore with "invalid argument"). A second identity is
+/// no way out: macOS sees a different Mac and greets it with Setup Assistant. So the first
+/// running session restores the snapshot, and any session started while it runs cold boots
+/// from the clean copy instead: same identity, a few seconds slower.
 public struct VMImage: Sendable {
     public enum Stage: String, Codable, Sendable {
         /// macOS installed, Setup Assistant not done yet.
@@ -51,17 +52,8 @@ public struct VMImage: Sendable {
     public var machineIDFile: URL { dir.appendingPathComponent("machine-id.bin") }
     public var state: URL { dir.appendingPathComponent("state.vzvmsave") }
     var metaFile: URL { dir.appendingPathComponent("image.json") }
-    var slotsDir: URL { dir.appendingPathComponent("slots") }
-
-    /// This image (slot 0) followed by its other slots, if they are ready.
-    public func slotImages() -> [VMImage] {
-        var out = [self]
-        let dirs = (try? FileManager.default.contentsOfDirectory(at: slotsDir, includingPropertiesForKeys: nil)) ?? []
-        for d in dirs.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
-            if let v = VMImage.load(from: d), v.meta.stage == .ready { out.append(v) }
-        }
-        return out
-    }
+    var coldDisk: URL { dir.appendingPathComponent("cold-disk.img") }
+    var coldAux: URL { dir.appendingPathComponent("cold-aux.img") }
 
     static func load(from dir: URL) -> VMImage? {
         let dec = JSONDecoder()

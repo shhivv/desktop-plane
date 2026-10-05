@@ -20,8 +20,11 @@ public final class Session: NSObject, Identifiable {
     public internal(set) var detail = ""
     public internal(set) var vm: VZVirtualMachine?
     let dir: URL
-    /// The image slot this session was cloned from. Its machine identity is in use while it runs.
-    var slot: URL?
+    /// Restores the snapshot (fast) or cold boots the clean copy (when another restored
+    /// session is running; see VMImage).
+    var restoreSnapshot = true
+    /// Apps and URLs to open once the guest is up.
+    var open: [String] = []
     /// Data volume plugged in after boot, if the session asked for one.
     public internal(set) var volume: Volume?
     private var usbDevice: AnyObject?
@@ -44,6 +47,9 @@ public final class Session: NSObject, Identifiable {
 
     func touch() { lastActivity = Date() }
 
+    /// Restores in progress, host-wide. Cold boots wait for them (see boot).
+    static var restoresInFlight = 0
+
     var link: GuestLink {
         get throws {
             guard let vm, state == .ready else { throw PlaneError("session is \(state.rawValue)") }
@@ -59,8 +65,10 @@ public final class Session: NSObject, Identifiable {
         let disk = dir.appendingPathComponent("disk.img")
         let aux = dir.appendingPathComponent("aux.img")
         // Copy-on-write clones: instant, and they share blocks with the image until written.
-        try Self.clone(image.disk, to: disk)
-        try Self.clone(image.aux, to: aux)
+        // A snapshot restore needs the disk it was taken with; a cold boot wants the clean one.
+        let cold = !restoreSnapshot && FileManager.default.fileExists(atPath: image.coldDisk.path)
+        try Self.clone(cold ? image.coldDisk : image.disk, to: disk)
+        try Self.clone(cold ? image.coldAux : image.aux, to: aux)
         // Clones keep the golden image's read-only mode; the VM needs to write its own copy.
         for f in [disk, aux] { chmod(f.path, 0o600) }
 
@@ -86,7 +94,8 @@ public final class Session: NSObject, Identifiable {
 
         let t0 = Date()
         var restored = false
-        if FileManager.default.fileExists(atPath: image.state.path) {
+        if !cold, FileManager.default.fileExists(atPath: image.state.path) {
+            Self.restoresInFlight += 1
             do {
                 try await vm.restoreMachineStateFrom(url: image.state)
                 try await vm.resume()
@@ -94,8 +103,13 @@ public final class Session: NSObject, Identifiable {
             } catch {
                 Log.warn("restore failed, cold booting: \(error.localizedDescription)", session: id)
             }
+            Self.restoresInFlight -= 1
         }
-        if !restored { try await vm.start() }
+        if !restored {
+            // A VM that starts while a restore is under way makes that restore fail.
+            while Self.restoresInFlight > 0 { try await Task.sleep(nanoseconds: 100_000_000) }
+            try await vm.start()
+        }
         bootMode = restored ? "restored" : "cold"
 
         let reply = try await waitForAgent(timeout: restored ? 90 : 300)
@@ -107,6 +121,10 @@ public final class Session: NSObject, Identifiable {
         if let volume {
             guard #available(macOS 15.0, *) else { throw PlaneError("data volumes need macOS 15 or later on the host") }
             try await attach(volume)
+        }
+        if !open.isEmpty {
+            let r = try await GuestLink(vm: vm).control(.init(kind: .open, open: open), timeout: 60)
+            if let e = r.error { Log.warn(e, session: id) }
         }
         detail = "arc-cua \(reply.arcCUA ?? "?") · screen recording \(reply.screenRecording ? "on" : "off")"
             + (volume.map { " · volume \($0.meta.name)" } ?? "")
