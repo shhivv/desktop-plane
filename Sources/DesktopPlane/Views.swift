@@ -129,7 +129,7 @@ private struct TopBar: View {
             .padding(.horizontal, 26)
             Rectangle().fill(T.border).frame(height: 1)
         }
-        .background(Color.black.opacity(0.12))
+
     }
 }
 
@@ -234,7 +234,7 @@ private struct DesktopCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             ZStack {
-                Color.black.opacity(0.4)
+                T.surface
                 if let vm = session.vm, session.state == .ready {
                     VMDisplay(vm: vm)
                 } else {
@@ -443,7 +443,7 @@ private struct VolumesPane: View {
                         TextField("New volume name", text: $name)
                             .textFieldStyle(.plain).font(T.sans(13))
                             .padding(.horizontal, 10).frame(width: 220, height: 28)
-                            .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Color.black.opacity(0.3)))
+                            .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(T.surface))
                             .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).strokeBorder(T.border))
                         Stepper(value: $sizeGB, in: 1...500) { Text("\(sizeGB) GB").font(T.sans(13)).monospacedDigit() }
                         Spacer()

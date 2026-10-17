@@ -293,7 +293,7 @@ private struct SetupScreen: View {
         let b = model.builder
         VStack(alignment: .leading, spacing: 12) {
             ZStack {
-                RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.black.opacity(0.35))
+                RoundedRectangle(cornerRadius: 10, style: .continuous).fill(T.surface)
                 if let vm = b.provisioningVM {
                     VMDisplay(vm: vm, interactive: true).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 } else {

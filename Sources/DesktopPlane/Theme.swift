@@ -4,9 +4,9 @@ import SwiftUI
 /// The app's look. Quiet warm graphite; the Mac mini's power light is the one bright thing,
 /// and it means "running" wherever it appears.
 enum T {
-    static let bg = Color(hex: 0x141312)
-    static let surface = Color(hex: 0x1B1A18)
-    static let raised = Color(hex: 0x24221F)
+    static let bg = Color.black
+    static let surface = Color(hex: 0x111110)
+    static let raised = Color(hex: 0x1C1B1A)
     static let border = Color.white.opacity(0.07)
     static let borderStrong = Color.white.opacity(0.12)
     static let text = Color(hex: 0xEDEAE5)
@@ -126,7 +126,7 @@ struct Terminal: View {
         }
         .padding(.horizontal, 12)
         .frame(height: 38)
-        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.black.opacity(0.3)))
+        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(T.surface))
         .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(T.border))
     }
 }
@@ -143,7 +143,7 @@ struct CodeBlock: View {
             CopyButton(text: text)
         }
         .padding(12)
-        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.black.opacity(0.3)))
+        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(T.surface))
         .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(T.border))
     }
 }
@@ -281,10 +281,10 @@ struct Choice<Value: Hashable>: View {
     }
 }
 
-/// How it fits together: agents on your computer, desktops on this Mac. A dot crosses once
-/// from one to the other when it appears.
+/// How it fits together: agents on your computer, desktops on this Mac. A dot keeps travelling
+/// from one to the other; it holds still when Reduce Motion is on.
 struct HowItWorks: View {
-    @State private var sent = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
@@ -293,10 +293,13 @@ struct HowItWorks: View {
                 Line().stroke(T.borderStrong, style: StrokeStyle(lineWidth: 1, dash: [3, 4]))
                     .frame(height: 1)
                 GeometryReader { g in
-                    Circle().fill(T.led).frame(width: 5, height: 5)
-                        .shadow(color: T.lamp.opacity(0.8), radius: 3)
-                        .offset(x: sent ? g.size.width - 5 : 0, y: -2)
-                        .opacity(sent ? 1 : 0)
+                    TimelineView(.animation(minimumInterval: 1 / 60, paused: reduceMotion)) { tl in
+                        let (x, alpha) = position(tl.date)
+                        Circle().fill(T.led).frame(width: 5, height: 5)
+                            .shadow(color: T.lamp.opacity(0.8), radius: 3)
+                            .offset(x: (g.size.width - 5) * x, y: -2)
+                            .opacity(alpha)
+                    }
                 }
                 .frame(height: 1)
             }
@@ -306,9 +309,19 @@ struct HowItWorks: View {
             node(symbol: "macmini", title: "This Mac", detail: "Desktops run here")
         }
         .frame(maxWidth: .infinity)
-        .onAppear {
-            withAnimation(.easeInOut(duration: 1.6).delay(0.5)) { sent = true }
-        }
+    }
+
+    /// Where the dot is (0…1 along the line) and how visible: 1.8 s across, eased, fading in
+    /// and out at the ends, then a short pause.
+    private func position(_ date: Date) -> (CGFloat, Double) {
+        if reduceMotion { return (0.5, 1) }
+        let cycle = 2.4, travel = 1.8
+        let t = date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: cycle)
+        guard t < travel else { return (1, 0) }
+        let p = t / travel
+        let eased = p < 0.5 ? 2 * p * p : 1 - pow(-2 * p + 2, 2) / 2
+        let alpha = min(1, min(p, 1 - p) * 6)
+        return (CGFloat(eased), alpha)
     }
 
     private func node(symbol: String, title: String, detail: String) -> some View {
