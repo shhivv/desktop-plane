@@ -72,8 +72,9 @@ public enum AgentSetup {
         chmod(url.path, 0o600)
     }
 
-    /// Runs a program directly, without a shell.
-    static func run(_ path: String, _ args: [String]) async throws -> (status: Int32, output: String) {
+    /// Runs a program directly, without a shell. With a timeout, a program still running then is
+    /// stopped and whatever it printed so far is returned (status -1).
+    static func run(_ path: String, _ args: [String], timeout: TimeInterval? = nil) async throws -> (status: Int32, output: String) {
         try await withCheckedThrowingContinuation { cont in
             DispatchQueue.global().async {
                 let p = Process()
@@ -83,12 +84,23 @@ public enum AgentSetup {
                 p.standardOutput = pipe
                 p.standardError = pipe
                 p.standardInput = FileHandle.nullDevice
+                let lock = NSLock()
+                var out = Data()
+                pipe.fileHandleForReading.readabilityHandler = { h in
+                    let d = h.availableData
+                    lock.withLock { out.append(d) }
+                }
                 do {
                     try p.run()
-                    let out = pipe.fileHandleForReading.readDataToEndOfFile()
+                    if let timeout {
+                        DispatchQueue.global().asyncAfter(deadline: .now() + timeout) { if p.isRunning { p.terminate() } }
+                    }
                     p.waitUntilExit()
-                    cont.resume(returning: (p.terminationStatus,
-                                            String(decoding: out, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)))
+                    pipe.fileHandleForReading.readabilityHandler = nil
+                    let rest = pipe.fileHandleForReading.readDataToEndOfFile()
+                    let text = lock.withLock { String(decoding: out + rest, as: UTF8.self) }
+                    let status = p.terminationReason == .uncaughtSignal ? -1 : p.terminationStatus
+                    cont.resume(returning: (status, text.trimmingCharacters(in: .whitespacesAndNewlines)))
                 } catch { cont.resume(throwing: error) }
             }
         }

@@ -63,6 +63,13 @@ public final class PlaneService: ObservableObject {
         }
         settings = new
         manager.update(settings: new)
+        // Served on the tailnet: keep `tailscale serve` pointed at the API's port.
+        if Reachability.mode(old) == .tailscale, Reachability.mode(new) == .tailscale, old.port != new.port {
+            Task { [weak self] in
+                await Reachability.stopServing(old)
+                if let n = try? await Reachability.useTailscale(new) { try? self?.apply(n) }
+            }
+        }
         objectWillChange.send()
         if old.bindAddress != new.bindAddress || old.port != new.port, server != nil {
             server?.stop()

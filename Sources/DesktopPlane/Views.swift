@@ -81,6 +81,7 @@ struct Dashboard: View {
                             Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(T.amber).font(.system(size: 11))
                             Text(e).foregroundStyle(T.text).textSelection(.enabled)
                             Spacer()
+                            ErrorLink(text: e)
                             Button("Dismiss") { model.lastError = nil }.buttonStyle(LinkButton())
                         }
                         .font(T.sans(13))

@@ -8,12 +8,12 @@ public enum Reachability {
     public struct Tailnet: Sendable {
         /// e.g. "mini.tail1234.ts.net"
         public let dnsName: String
-        public var url: String { "https://" + dnsName }
+        public func url(port: UInt16) -> String { "https://\(dnsName):\(port)" }
     }
 
     /// The mode the settings describe right now.
     public static func mode(_ s: HostSettings) -> Mode {
-        if s.publicURL.hasPrefix("https://"), s.publicURL.contains(".ts.net") { return .tailscale }
+        if s.publicURL.hasPrefix("https://"), URL(string: s.publicURL)?.host?.hasSuffix(".ts.net") == true { return .tailscale }
         if s.bindAddress != "127.0.0.1" { return .lan }
         return .local
     }
@@ -36,25 +36,35 @@ public enum Reachability {
 
     public static var tailscaleInstalled: Bool { tailscaleCLI() != nil }
 
-    /// Serves the API on the tailnet over HTTPS (`tailscale serve`), keeps the API itself on
-    /// loopback, and records the tailnet URL as the address clients use.
+    /// Serves the API on the tailnet over HTTPS (`tailscale serve`) on the API's own port, so
+    /// nothing else the person serves on the tailnet is touched. Keeps the API on loopback and
+    /// records the tailnet URL as the address clients use.
     public static func useTailscale(_ s: HostSettings) async throws -> HostSettings {
         guard let cli = tailscaleCLI() else { throw PlaneError("Tailscale isn't installed on this Mac") }
-        guard let net = await tailnet() else { throw PlaneError("Tailscale is installed but not connected. Open Tailscale and sign in.") }
-        let r = try await AgentSetup.run(cli, ["serve", "--bg", "--https=443", "http://127.0.0.1:\(s.port)"])
-        guard r.status == 0 else {
-            // Serve needs HTTPS certificates turned on for the tailnet; its message says how.
-            throw PlaneError(r.output.isEmpty ? "tailscale serve failed" : r.output)
+        guard let net = await tailnet() else { throw PlaneError("Tailscale is installed but not signed in. Open Tailscale and sign in.") }
+        let r = try await AgentSetup.run(cli, ["serve", "--bg", "--https=\(s.port)", "http://127.0.0.1:\(s.port)"], timeout: 20)
+        if let link = r.output.range(of: #"https://login\.tailscale\.com/\S+"#, options: .regularExpression) {
+            // Serve or HTTPS certificates are off for the tailnet; the admin has to turn them on.
+            throw PlaneError("Tailscale needs Serve turned on for your tailnet. Open \(r.output[link]), turn it on, then try again.")
         }
+        guard r.status == 0 else { throw PlaneError(r.output.isEmpty ? "tailscale serve didn't finish" : r.output) }
         var n = s
         n.bindAddress = "127.0.0.1"
-        n.publicURL = net.url
+        n.publicURL = net.url(port: s.port)
         return n
+    }
+
+    /// Stops serving the API on the tailnet, if this app set it up.
+    static func stopServing(_ s: HostSettings) async {
+        guard mode(s) == .tailscale, let cli = tailscaleCLI() else { return }
+        let port = URL(string: s.publicURL)?.port ?? 443
+        _ = try? await AgentSetup.run(cli, ["serve", "--https=\(port)", "off"], timeout: 10)
     }
 
     /// Listens on every network so computers on the same network can reach it, at this Mac's
     /// Bonjour name. Plain HTTP: the token crosses the network unencrypted.
-    public static func useLAN(_ s: HostSettings) -> HostSettings {
+    public static func useLAN(_ s: HostSettings) async -> HostSettings {
+        await stopServing(s)
         var n = s
         n.bindAddress = "0.0.0.0"
         n.publicURL = "http://\(localHostName()):\(s.port)"
@@ -63,9 +73,7 @@ public enum Reachability {
 
     /// Back to this Mac only. Turns `tailscale serve` off if it was serving the API.
     public static func useLocalOnly(_ s: HostSettings) async -> HostSettings {
-        if mode(s) == .tailscale, let cli = tailscaleCLI() {
-            _ = try? await AgentSetup.run(cli, ["serve", "--https=443", "off"])
-        }
+        await stopServing(s)
         var n = s
         n.bindAddress = "127.0.0.1"
         n.publicURL = ""

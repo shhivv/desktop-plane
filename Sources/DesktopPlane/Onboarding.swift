@@ -106,8 +106,20 @@ private struct ErrorLine: View {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(T.amber).font(.system(size: 11))
                 Text(e).foregroundStyle(T.muted).lineLimit(4).textSelection(.enabled)
+                ErrorLink(text: e)
             }
             .font(T.sans(12.5))
+        }
+    }
+}
+
+/// An "Open link" button for the first web address in an error, such as Tailscale's approval page.
+struct ErrorLink: View {
+    let text: String
+    var body: some View {
+        if let r = text.range(of: #"https://[^\s,)]+"#, options: .regularExpression),
+           let url = URL(string: String(text[r]).trimmingCharacters(in: CharacterSet(charactersIn: ".,"))) {
+            Button("Open link") { NSWorkspace.shared.open(url) }.buttonStyle(SecondaryButton())
         }
     }
 }
@@ -461,17 +473,22 @@ struct ReachOptions: View {
     private func use(_ m: Reachability.Mode) {
         guard let s = model.service?.settings else { return }
         working = m
-        model.run {
-            let n: HostSettings
-            switch m {
-            case .tailscale: n = try await Reachability.useTailscale(s)
-            case .lan: n = Reachability.useLAN(s)
-            case .local: n = await Reachability.useLocalOnly(s)
+        model.lastError = nil
+        Task {
+            do {
+                let n: HostSettings
+                switch m {
+                case .tailscale: n = try await Reachability.useTailscale(s)
+                case .lan: n = await Reachability.useLAN(s)
+                case .local: n = await Reachability.useLocalOnly(s)
+                }
+                try model.service?.apply(n)
+            } catch {
+                model.lastError = error.localizedDescription
             }
-            try model.service?.apply(n)
             working = nil
+            await refresh()
         }
-        Task { try? await Task.sleep(nanoseconds: 4_000_000_000); working = nil; await refresh() }
     }
 }
 

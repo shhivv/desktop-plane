@@ -64,7 +64,7 @@ public final class SessionManager: ObservableObject {
             volume = v
         }
         let open = req.open ?? []
-        guard open.count <= 10, open.allSatisfy({ !$0.isEmpty && $0.count <= 2048 && !$0.contains("\n") }) else {
+        guard open.count <= 10, open.allSatisfy({ !$0.isEmpty && $0.count <= 2048 && !$0.contains("\n") && !$0.hasPrefix("-") }) else {
             throw APIError(400, "open takes up to 10 app names or URLs")
         }
         let s = Session(ttl: TimeInterval(ttl), idleTimeout: TimeInterval(idle), policy: req.network ?? EgressPolicy())

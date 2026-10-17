@@ -123,7 +123,7 @@ public struct HostSettings: Codable, Sendable {
         var a = in_addr()
         if inet_pton(AF_INET, bindAddress, &a) != 1 { e.append("bind address must be an IPv4 address, like 127.0.0.1 or 0.0.0.0") }
         if defaultTTLSeconds < 60 || defaultIdleTimeoutSeconds < 60 { e.append("TTL and idle timeout must be at least 60 seconds") }
-        if !publicURL.isEmpty, URL(string: publicURL)?.host == nil || !(publicURL.hasPrefix("http://") || publicURL.hasPrefix("https://")) {
+        if !publicURL.isEmpty, publicURL.range(of: #"^https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?/?$"#, options: .regularExpression) == nil {
             e.append("public URL must look like https://mini.tailnet.ts.net")
         }
         return e

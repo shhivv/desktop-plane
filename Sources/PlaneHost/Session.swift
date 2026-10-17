@@ -134,7 +134,7 @@ public final class Session: NSObject, Identifiable {
 
     /// Opens apps and URLs in the guest. Returns what could not be opened, if anything.
     func openItems(_ items: [String], vm: VZVirtualMachine? = nil) async throws -> String? {
-        guard items.count <= 10, items.allSatisfy({ !$0.isEmpty && $0.count <= 2048 && !$0.contains("\n") }) else {
+        guard items.count <= 10, items.allSatisfy({ !$0.isEmpty && $0.count <= 2048 && !$0.contains("\n") && !$0.hasPrefix("-") }) else {
             throw APIError(400, "open takes up to 10 app names or URLs")
         }
         let link = try vm.map { try GuestLink(vm: $0) } ?? self.link

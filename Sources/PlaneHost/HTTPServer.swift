@@ -14,7 +14,8 @@ public struct HTTPRequest: Sendable {
 
     /// Who is calling: the forwarded address when a local proxy (tailscale serve) sits in front.
     var client: String {
-        if peer == "127.0.0.1" || peer.isEmpty, let f = header("x-forwarded-for")?.split(separator: ",").first {
+        // The proxy appends the address it saw; anything to its left came from the client.
+        if peer == "127.0.0.1" || peer.isEmpty, let f = header("x-forwarded-for")?.split(separator: ",").last {
             return f.trimmingCharacters(in: .whitespaces)
         }
         return peer
@@ -78,10 +79,21 @@ final class HTTPServer: @unchecked Sendable {
                     break
                 }
                 setsockopt(c, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
-                Thread.detachNewThread { self.serve(c) }
+                // A client that goes quiet mid-request is dropped rather than holding a thread.
+                var timeout = timeval(tv_sec: 30, tv_usec: 0)
+                setsockopt(c, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+                guard self.claimSlot() else { close(c); continue }
+                Thread.detachNewThread { self.serve(c); self.releaseSlot() }
             }
         }
     }
+
+    /// Open connections, capped so a flood can't exhaust threads before anyone authenticates.
+    static let maxConnections = 128
+    private let slots = NSLock()
+    private var open = 0
+    private func claimSlot() -> Bool { slots.withLock { guard open < Self.maxConnections else { return false }; open += 1; return true } }
+    private func releaseSlot() { slots.withLock { open -= 1 } }
 
     func stop() {
         if listenFD >= 0 { shutdown(listenFD, SHUT_RDWR); close(listenFD); listenFD = -1 }
@@ -135,7 +147,8 @@ final class HTTPServer: @unchecked Sendable {
         }
         if headers["transfer-encoding"] != nil { return nil }
         let length = Int(headers["content-length"] ?? "0") ?? 0
-        guard length >= 0, length <= 16 << 20 else { return nil }
+        // Requests are small JSON; screenshots and other large data only go out in responses.
+        guard length >= 0, length <= 1 << 20 else { return nil }
         while body.count < length {
             guard let chunk = try? FD.readSome(fd), !chunk.isEmpty else { return nil }
             body.append(chunk)
