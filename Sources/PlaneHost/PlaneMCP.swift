@@ -158,7 +158,8 @@ final class PlaneMCP {
              "inputSchema": schema([:])],
             ["name": "desktop_open",
              "description": "Open apps or URLs on a desktop, the way `open` does in Terminal. The driver "
-                + "acts only on windows that are open, so use this to launch an app.",
+                + "acts only on windows that are open, so use this to launch an app. Snapshots taken "
+                + "before this call are no longer valid; observe again afterwards.",
              "inputSchema": schema(["desktop": Self.desktopArg, "targets": openArg], required: ["targets"])],
             ["name": "desktop_screenshot",
              "description": "A PNG of the desktop's whole screen.",
@@ -213,6 +214,10 @@ final class PlaneMCP {
                 let s = try desktop(args, client)
                 guard let targets = args["targets"] as? [String], !targets.isEmpty else { throw APIError(400, "targets is required") }
                 let r = try await s.openItems(targets)
+                // arc-cua reads the running apps once, when it starts, so apps opened after that
+                // are invisible to it. Drop the driver connections to this desktop; the next
+                // call starts a fresh driver that sees them.
+                for c in clients.values { c.bridges.removeValue(forKey: s.id)?.close() }
                 return try text(["desktop": s.id, "opened": targets, "error": r.map { $0 as Any } ?? NSNull()])
             case "desktop_screenshot":
                 let s = try desktop(args, client)
