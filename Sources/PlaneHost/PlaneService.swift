@@ -22,7 +22,11 @@ public final class PlaneService: ObservableObject {
         manager = SessionManager(settings: settings)
     }
 
-    public var baseURL: String { "http://\(settings.bindAddress):\(settings.port)" }
+    /// Where this Mac reaches its own API. 0.0.0.0 is a bind address, not one to connect to.
+    public var baseURL: String {
+        let host = settings.bindAddress == "0.0.0.0" ? "127.0.0.1" : settings.bindAddress
+        return "http://\(host):\(settings.port)"
+    }
 
     public func start() throws {
         let api = API(manager: manager)
