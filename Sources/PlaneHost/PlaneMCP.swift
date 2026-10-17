@@ -20,6 +20,10 @@ final class PlaneMCP {
         var desktops: [String] = []
         /// One initialized driver connection per desktop.
         var bridges: [String: MCPBridge] = [:]
+        /// Connections being opened, so parallel calls share one instead of racing.
+        var opening: [String: Task<MCPBridge, Error>] = [:]
+        /// Desktops whose driver must restart before the next call (an app was opened).
+        var stale: Set<String> = []
         var lastSeen = Date()
         /// From initialize's clientInfo, e.g. "claude-code".
         var name = ""
@@ -71,6 +75,7 @@ final class PlaneMCP {
         }
         client.lastSeen = Date()
         if !address.isEmpty { client.address = address }
+        client.bridges = client.bridges.filter { id, b in manager.session(id)?.mcp[b.id] != nil }
         guard let method, let rawID = obj["id"], !(rawID is NSNull) else { return (nil, newID) }
         let params = obj["params"] as? [String: Any] ?? [:]
         var reply: [String: Any] = ["jsonrpc": "2.0", "id": rawID]
@@ -106,9 +111,9 @@ final class PlaneMCP {
         for b in c.bridges.values { b.close() }
     }
 
-    /// Forgets clients that have been quiet for a day; their desktops end on their own TTLs.
+    /// Forgets clients that have been quiet for an hour; their desktops end on their own TTLs.
     private func prune() {
-        let cutoff = Date().addingTimeInterval(-86400)
+        let cutoff = Date().addingTimeInterval(-3600)
         for (id, c) in clients where c.lastSeen < cutoff { close(id) }
     }
 
@@ -122,7 +127,11 @@ final class PlaneMCP {
         driver tool takes an optional `desktop` id; leave it out when one desktop is running. \
         desktop_screenshot shows the whole screen. Call desktop_end when you are done.
         """
-        if let guest = Self.cache()?["instructions"] as? String { s += "\n\nDriver: " + guest }
+        // Host-owned text only: nothing a guest says reaches every agent.
+        s += "\n\nDriver: call observe(pid) to get a snapshot id and the window's elements, then " +
+            "act(snapshot, action, element). apps lists running apps and their pids. If act returns " +
+            "'changed' or 'stale', decide again from the fresh snapshot it returns. type_text, click_at, " +
+            "press and scroll_at work at points in a window for what the elements don't cover."
         return s
     }
 
@@ -217,7 +226,7 @@ final class PlaneMCP {
                 // arc-cua reads the running apps once, when it starts, so apps opened after that
                 // are invisible to it. Drop the driver connections to this desktop; the next
                 // call starts a fresh driver that sees them.
-                for c in clients.values { c.bridges.removeValue(forKey: s.id)?.close() }
+                for c in clients.values where c.bridges[s.id] != nil { c.stale.insert(s.id) }
                 return try text(["desktop": s.id, "opened": targets, "error": r.map { $0 as Any } ?? NSNull()])
             case "desktop_screenshot":
                 let s = try desktop(args, client)
@@ -225,7 +234,7 @@ final class PlaneMCP {
                 let png = try await s.link.screenshot()
                 return try result([["type": "image", "data": png.base64EncodedString(), "mimeType": "image/png"]])
             case "desktop_end":
-                let s = try desktop(args, client)
+                let s = try desktop(args, client, ending: true)
                 client.bridges.removeValue(forKey: s.id)?.close()
                 await manager.destroy(s.id, reason: "ended by agent")
                 client.desktops.removeAll { $0 == s.id }
@@ -246,17 +255,25 @@ final class PlaneMCP {
 
     /// The desktop a call means: the one named, else the only one this client started, else the
     /// only one running.
-    private func desktop(_ args: [String: Any], _ client: Client) throws -> Session {
-        let ready = manager.sessions.filter { $0.state == .ready }
+    /// The desktop a call means: the one named, else the only one this client started. A client
+    /// that has never started one may use the only desktop running. Never another agent's
+    /// desktop by default, and never to end it.
+    private func desktop(_ args: [String: Any], _ client: Client, ending: Bool = false) throws -> Session {
         if let id = args["desktop"] as? String, !id.isEmpty {
             guard let s = manager.session(id) else { throw APIError(404, "no desktop \(id); desktop_list shows them") }
             return s
         }
+        let ready = manager.sessions.filter { $0.state == .ready }
         let mine = ready.filter { client.desktops.contains($0.id) }
         if mine.count == 1 { return mine[0] }
-        if mine.isEmpty, ready.count == 1 { return ready[0] }
+        if mine.count > 1 {
+            throw APIError(400, "you have several desktops (\(mine.map(\.id).joined(separator: ", "))); pass `desktop`")
+        }
+        if !ending, client.desktops.isEmpty, ready.count == 1 { return ready[0] }
+        if !client.desktops.isEmpty { throw APIError(404, "your desktop has ended; start one with desktop_create") }
         if ready.isEmpty { throw APIError(404, "no desktop is running; start one with desktop_create") }
-        throw APIError(400, "several desktops are running (\(ready.map(\.id).joined(separator: ", "))); pass `desktop`")
+        throw APIError(400, ending ? "pass `desktop` to end a desktop you didn't start"
+                                   : "several desktops are running (\(ready.map(\.id).joined(separator: ", "))); pass `desktop`")
     }
 
     private func describe(_ s: Session, _ client: Client) -> [String: Any] {
@@ -280,36 +297,61 @@ final class PlaneMCP {
 
     /// An initialized driver connection to the desktop, opened on first use.
     private func driver(_ s: Session, _ client: Client) async throws -> MCPBridge {
+        if client.stale.remove(s.id) != nil, let old = client.bridges.removeValue(forKey: s.id) {
+            // Calls already sent on the old connection may still be running; let them finish.
+            Task { try? await Task.sleep(nanoseconds: 120_000_000_000); old.close() }
+        }
         if let b = client.bridges[s.id], s.mcp[b.id] != nil { return b }
-        let b = try await manager.openMCP(s)
-        let initMsg: [String: Any] = ["jsonrpc": "2.0", "id": "plane:init", "method": "initialize",
-                                      "params": ["protocolVersion": Self.version, "capabilities": [:] as [String: Any],
-                                                 "clientInfo": ["name": "desktop-plane", "version": "0.2.0"]]]
-        let initReply = try await b.send(try JSONSerialization.data(withJSONObject: initMsg), timeout: 60)
-        _ = try await b.send(Data(#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#.utf8))
-        let listReply = try await b.send(Data(#"{"jsonrpc":"2.0","id":"plane:tools","method":"tools/list"}"#.utf8), timeout: 60)
-        Self.remember(initialize: initReply, tools: listReply)
+        if let t = client.opening[s.id] { return try await t.value }
+        let manager = self.manager
+        let t = Task { @MainActor () throws -> MCPBridge in
+            let b = try await manager.openMCP(s)
+            do {
+                let initMsg: [String: Any] = ["jsonrpc": "2.0", "id": "plane:init", "method": "initialize",
+                                              "params": ["protocolVersion": Self.version, "capabilities": [:] as [String: Any],
+                                                         "clientInfo": ["name": "desktop-plane", "version": "0.2.0"]]]
+                _ = try await b.send(try JSONSerialization.data(withJSONObject: initMsg), timeout: 60)
+                _ = try await b.send(Data(#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#.utf8))
+                return b
+            } catch {
+                b.close()
+                throw error
+            }
+        }
+        client.opening[s.id] = t
+        defer { client.opening[s.id] = nil }
+        let b = try await t.value
         client.bridges[s.id] = b
         return b
     }
 
+    /// The driver's tool list, learned once from the golden image while it was snapshotted (a
+    /// guest the owner built), never from a tenant's desktop. Loaded once per process.
     static func cache() -> [String: Any]? {
-        guard let d = try? Data(contentsOf: cacheURL) else { return nil }
-        return try? JSONSerialization.jsonObject(with: d) as? [String: Any]
+        if let c = cached { return c }
+        guard let d = try? Data(contentsOf: cacheURL), d.count <= maxCacheBytes,
+              let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { return nil }
+        cached = o
+        return o
     }
+    nonisolated(unsafe) private static var cached: [String: Any]?
+    static let maxCacheBytes = 256 << 10
 
-    /// Keeps the driver's instructions and tool list for the next client's tools/list.
-    static func remember(initialize: Data?, tools: Data?) {
-        func result(_ d: Data?) -> [String: Any]? {
-            guard let d, let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { return nil }
-            return o["result"] as? [String: Any]
+    /// Records the driver's tools from a tools/list reply, within limits.
+    static func remember(tools: Data?) {
+        guard let tools, let o = try? JSONSerialization.jsonObject(with: tools) as? [String: Any],
+              let list = (o["result"] as? [String: Any])?["tools"] as? [[String: Any]], !list.isEmpty else { return }
+        let kept = list.prefix(64).compactMap { t -> [String: Any]? in
+            guard let name = t["name"] as? String, name.count <= 64,
+                  name.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "_" }) else { return nil }
+            var t = t
+            if let d = t["description"] as? String, d.count > 2000 { t["description"] = String(d.prefix(2000)) }
+            return t
         }
-        guard let list = result(tools)?["tools"] as? [[String: Any]], !list.isEmpty else { return }
-        var obj: [String: Any] = ["tools": list]
-        if let i = result(initialize)?["instructions"] as? String { obj["instructions"] = i }
-        if let info = result(initialize)?["serverInfo"] { obj["server"] = info }
-        guard let d = try? JSONSerialization.data(withJSONObject: obj, options: [.sortedKeys]) else { return }
-        if (try? Data(contentsOf: cacheURL)) != d { try? d.write(to: cacheURL, options: .atomic) }
+        guard let d = try? JSONSerialization.data(withJSONObject: ["tools": kept], options: [.sortedKeys]),
+              d.count <= maxCacheBytes else { return }
+        try? d.write(to: cacheURL, options: .atomic)
+        cached = nil
     }
 }
 

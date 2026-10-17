@@ -37,6 +37,11 @@ final class MCPBridge: @unchecked Sendable {
         return try await withCheckedThrowingContinuation { cont in
             lock.lock()
             if closed { lock.unlock(); cont.resume(throwing: PlaneError("MCP connection closed")); return }
+            if pending[key] != nil {
+                lock.unlock()
+                cont.resume(throwing: PlaneError("a request with this id is already in flight"))
+                return
+            }
             pending[key] = cont
             lock.unlock()
             do { try write(line) } catch { finish(key, .failure(error)); return }
@@ -58,19 +63,30 @@ final class MCPBridge: @unchecked Sendable {
         c?.resume(with: r)
     }
 
+    /// Longest message the guest may send: a base64 screenshot with room to spare. A guest that
+    /// sends more without a newline is cut off rather than allowed to fill the host's memory.
+    static let maxLine = 32 << 20
+
     private func readLoop() {
         var buf = Data()
-        while true {
+        var scanned = 0
+        reading: while true {
             guard let chunk = try? FD.readSome(fd), !chunk.isEmpty else { break }
             buf.append(chunk)
-            while let nl = buf.firstIndex(of: 0x0a) {
+            while let nl = buf[(buf.startIndex + scanned)...].firstIndex(of: 0x0a) {
                 let line = buf[buf.startIndex..<nl]
                 buf = Data(buf[buf.index(after: nl)...])
+                scanned = 0
                 guard let obj = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { continue }
                 // A response has an id and no method.
                 if obj["method"] == nil, let rawID = obj["id"] {
                     finish(Self.key(rawID), .success(Data(line)))
                 }
+            }
+            scanned = buf.count
+            if buf.count > Self.maxLine {
+                Log.warn("guest sent more than \(Self.maxLine >> 20) MB without a newline; closing", session: session)
+                break reading
             }
         }
         close()

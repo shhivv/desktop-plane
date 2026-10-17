@@ -193,6 +193,8 @@ public final class ImageBuilder: NSObject, ObservableObject {
             if (try? await link.control(.init(kind: .ping), timeout: 3)) != nil { break }
             try await Task.sleep(nanoseconds: 1_000_000_000)
         }
+        // Learn the driver's tools here, from the image the owner built, before any tenant runs.
+        await learnDriverTools(link)
         // The virtual power button only raises a "shut down?" dialog; ask the guest instead.
         _ = try? await link.shell("sudo -n /sbin/shutdown -h now", timeout: 10)
         let stopBy = Date().addingTimeInterval(120)
@@ -200,6 +202,22 @@ public final class ImageBuilder: NSObject, ObservableObject {
         if vm.state != .stopped {
             Log.warn("guest did not shut down within 2 minutes; powering off")
             try await vm.stop()
+        }
+    }
+
+    /// Asks the guest's driver for its tool list and keeps it for the plane's MCP endpoint.
+    private func learnDriverTools(_ link: GuestLink) async {
+        do {
+            let fd = try await link.connect(port: VsockPort.guestMCP)
+            try FD.writeAll(fd, Data("#!default\n".utf8))
+            let b = MCPBridge(fd: fd, session: "finalize")
+            defer { b.close() }
+            let initMsg = #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"desktop-plane","version":"0.2.0"}}}"#
+            _ = try await b.send(Data(initMsg.utf8), timeout: 60)
+            _ = try await b.send(Data(#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#.utf8))
+            PlaneMCP.remember(tools: try await b.send(Data(#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#.utf8), timeout: 60))
+        } catch {
+            Log.warn("could not read the driver's tools: \(error.localizedDescription)")
         }
     }
 
