@@ -213,8 +213,9 @@ final class PlaneMCP {
             switch name {
             case "desktop_create":
                 let body = try JSONSerialization.data(withJSONObject: args)
-                guard let req = try? JSONDecoder().decode(SessionManager.CreateRequest.self, from: body) else {
-                    throw APIError(400, "invalid arguments")
+                let req: SessionManager.CreateRequest
+                do { req = try JSONDecoder().decode(SessionManager.CreateRequest.self, from: body) } catch {
+                    throw APIError(400, "invalid arguments: \(Self.describe(error))")
                 }
                 let s = try await manager.create(req)
                 client.desktops.append(s.id)
@@ -225,12 +226,14 @@ final class PlaneMCP {
             case "desktop_open":
                 let s = try desktop(args, client)
                 guard let targets = args["targets"] as? [String], !targets.isEmpty else { throw APIError(400, "targets is required") }
-                let r = try await s.openItems(targets)
+                if let e = try await s.openItems(targets) {
+                    throw APIError(400, "\(e). Use an app's name as it appears in /Applications (for example \"TextEdit\") or a full URL.")
+                }
                 // arc-cua reads the running apps once, when it starts, so apps opened after that
                 // are invisible to it. Drop the driver connections to this desktop; the next
                 // call starts a fresh driver that sees them.
                 for c in clients.values where c.bridges[s.id] != nil { c.stale.insert(s.id) }
-                return try text(["desktop": s.id, "opened": targets, "error": r.map { $0 as Any } ?? NSNull()])
+                return try text(["desktop": s.id, "opened": targets])
             case "desktop_screenshot":
                 let s = try desktop(args, client)
                 s.touch()
@@ -277,6 +280,17 @@ final class PlaneMCP {
         if ready.isEmpty { throw APIError(404, "no desktop is running; start one with desktop_create") }
         throw APIError(400, ending ? "pass `desktop` to end a desktop you didn't start"
                                    : "several desktops are running (\(ready.map(\.id).joined(separator: ", "))); pass `desktop`")
+    }
+
+    /// "ttl_seconds should be a number" rather than a DecodingError dump.
+    static func describe(_ error: Error) -> String {
+        switch error as? DecodingError {
+        case .typeMismatch(let type, let c)?:
+            return "\(c.codingPath.map(\.stringValue).joined(separator: ".")) should be \(type == Int.self ? "a whole number" : "\(type)")"
+        case .valueNotFound(_, let c)?: return "\(c.codingPath.map(\.stringValue).joined(separator: ".")) is missing"
+        case .keyNotFound(let k, _)?: return "\(k.stringValue) is missing"
+        default: return error.localizedDescription
+        }
     }
 
     private func describe(_ s: Session, _ client: Client) -> [String: Any] {

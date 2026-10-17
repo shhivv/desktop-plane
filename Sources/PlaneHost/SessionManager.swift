@@ -49,7 +49,7 @@ public final class SessionManager: ObservableObject {
             throw APIError(409, "image '\(settings.image)' is not ready; build it in the app or with `planed image`")
         }
         guard live.count < settings.maxVMs else {
-            throw APIError(429, "all \(settings.maxVMs) VM slots are busy")
+            throw APIError(429, "all \(settings.maxVMs) desktops on this Mac are in use; end one with desktop_end or try again later")
         }
         let ttl = min(max(req.ttl_seconds ?? settings.defaultTTLSeconds, 60), settings.maxTTLSeconds)
         let idle = max(req.idle_timeout_seconds ?? settings.defaultIdleTimeoutSeconds, 60)
