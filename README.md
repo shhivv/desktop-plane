@@ -5,9 +5,10 @@ computer-use agents. Each desktop is a fresh macOS VM (Apple Virtualization.fram
 the [arc-cua](https://github.com/shhivv/arc-cua) driver inside, reachable as an MCP server.
 
 Your agents keep running on your own computer. The spare Mac only serves desktops: when an
-agent needs a screen, it starts one there over MCP, drives it, and ends it. The app walks you
-through making the Mac reachable (Tailscale, or your local network) and gives you the one
-command to run on your computer:
+agent needs a screen, it starts one there over MCP, drives it, and ends it. Any agent that
+supports MCP over Streamable HTTP works; coding agents like Claude Code and Codex are one good
+fit. The app walks you through making the Mac reachable (Tailscale, or your local network) and
+shows the URL and header to add. For Claude Code, that's:
 
 ```bash
 # on your computer

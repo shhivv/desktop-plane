@@ -325,10 +325,10 @@ private struct AgentsPane: View {
             }
         }
         Block(title: "Add a computer",
-              detail: "Run this on the computer where you use Claude Code or Codex.") {
+              detail: "Add Desktop Plane as an MCP server in your agent's settings.") {
             ConnectInstructions()
         }
-        Block(title: "Agents on this Mac", detail: "For Claude Code or Codex installed on this Mac.") {
+        Block(title: "Agents on this Mac", detail: "One-click setup for Claude Code or Codex installed on this Mac.") {
             LocalAgents()
         }
     }

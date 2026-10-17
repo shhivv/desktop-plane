@@ -120,7 +120,7 @@ private struct WelcomeStep: View {
     var body: some View {
         let checks = HostCheck.all()
         StepPage(title: "Set up this Mac for computer use",
-                 subtitle: "Agents on your computer, like Claude Code and Codex, can use this Mac to control macOS apps. Each task gets its own macOS virtual machine, which is deleted when the task ends.") {
+                 subtitle: "AI agents on your computer can use this Mac to control macOS apps. It works with any agent that supports MCP. Each task gets its own macOS virtual machine, which is deleted when the task ends.") {
             HowItWorks().padding(.vertical, 14)
             Panel(padding: 0) {
                 VStack(spacing: 0) {
@@ -511,8 +511,8 @@ private struct ConnectStep: View {
     @EnvironmentObject var model: AppModel
 
     var body: some View {
-        StepPage(title: "Add Desktop Plane to your agent",
-                 subtitle: "Run this on the computer where you use Claude Code or Codex.") {
+        StepPage(title: "Connect your agent",
+                 subtitle: "In your agent's settings, on the computer where it runs, add Desktop Plane as an MCP server.") {
             ConnectInstructions()
         } actions: {
             Button("Done") { model.finishOnboarding() }
@@ -525,30 +525,51 @@ private struct ConnectStep: View {
 /// connects. Used in onboarding and on the Agents tab.
 struct ConnectInstructions: View {
     @EnvironmentObject var model: AppModel
+    @State private var showCommands = false
     @State private var agent: AgentSetup.Agent = .claude
 
     var body: some View {
-        if let s = model.service?.settings, model.reachMode == .local {
+        if model.service != nil, model.reachMode == .local {
             HStack(spacing: 10) {
                 Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(T.amber).font(.system(size: 11))
                 Text("Network access is off, so other computers can't connect. Turn it on in the previous step.")
                     .font(T.sans(13)).foregroundStyle(T.muted)
             }
         } else if let s = model.service?.settings {
-            VStack(alignment: .leading, spacing: 16) {
-                Choice(selection: $agent, options: AgentSetup.Agent.allCases.map { ($0, $0.title) })
-                switch agent {
-                case .claude:
-                    CodeBlock(text: AgentSetup.command(.claude, s),
-                              display: "claude mcp add --scope user --transport http desktop-plane \\\n  \(s.mcpURL) \\\n  --header \"Authorization: Bearer ••••••••\"")
-                case .codex:
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Add this to ~/.codex/config.toml on your computer:").font(T.sans(13)).foregroundStyle(T.muted)
-                        CodeBlock(text: AgentSetup.codexConfig(s),
-                                  display: "[mcp_servers.desktop-plane]\nurl = \"\(s.mcpURL)\"\nhttp_headers = { Authorization = \"Bearer ••••••••\" }")
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Use the Streamable HTTP transport with this URL and header.")
+                    .font(T.sans(13)).foregroundStyle(T.muted).fixedSize(horizontal: false, vertical: true)
+                Terminal(text: s.mcpURL, label: "URL")
+                Terminal(text: "Authorization: Bearer \(s.adminToken)", label: "Header", display: "Authorization: Bearer ••••••••")
+                ConnectionLine()
+                Button {
+                    withAnimation(.easeOut(duration: 0.15)) { showCommands.toggle() }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold))
+                            .rotationEffect(.degrees(showCommands ? 90 : 0))
+                        Text("Setup commands for specific agents").font(T.sans(13))
                     }
                 }
-                ConnectionLine()
+                .buttonStyle(GhostButton())
+                .padding(.top, 6)
+                if showCommands {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Choice(selection: $agent, options: AgentSetup.Agent.allCases.map { ($0, $0.title) })
+                        switch agent {
+                        case .claude:
+                            CodeBlock(text: AgentSetup.command(.claude, s),
+                                      display: "claude mcp add --scope user --transport http desktop-plane \\\n  \(s.mcpURL) \\\n  --header \"Authorization: Bearer ••••••••\"")
+                        case .codex:
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Add this to ~/.codex/config.toml:").font(T.sans(13)).foregroundStyle(T.muted)
+                                CodeBlock(text: AgentSetup.codexConfig(s),
+                                          display: "[mcp_servers.desktop-plane]\nurl = \"\(s.mcpURL)\"\nhttp_headers = { Authorization = \"Bearer ••••••••\" }")
+                            }
+                        }
+                    }
+                    .transition(.opacity)
+                }
             }
         }
     }
