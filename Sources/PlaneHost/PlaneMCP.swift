@@ -27,14 +27,21 @@ final class PlaneMCP {
         var address = ""
     }
 
-    /// Agents seen in the last ten minutes, most recent first.
+    /// Agents seen in the last ten minutes, most recent first. An agent opens a new MCP session
+    /// each time it starts (and for health checks), so sessions from the same agent on the same
+    /// computer are one entry.
     var connected: [ConnectedAgent] {
         let cutoff = Date().addingTimeInterval(-600)
-        return clients.filter { $0.value.lastSeen > cutoff }
-            .map { ConnectedAgent(id: $0.key, name: $0.value.name, version: $0.value.version, address: $0.value.address,
-                                  lastSeen: $0.value.lastSeen,
-                                  desktops: $0.value.desktops.filter { self.manager.session($0) != nil }.count) }
-            .sorted { $0.lastSeen > $1.lastSeen }
+        let recent = clients.values.filter { $0.lastSeen > cutoff }
+        let groups = Dictionary(grouping: recent) { "\($0.name)|\($0.address)" }
+        return groups.map { key, cs in
+            let latest = cs.max { $0.lastSeen < $1.lastSeen }!
+            return ConnectedAgent(id: key, name: latest.name, version: latest.version, address: latest.address,
+                                  lastSeen: latest.lastSeen,
+                                  desktops: cs.reduce(0) { $0 + $1.desktops.filter { self.manager.session($0) != nil }.count },
+                                  sessions: cs.count)
+        }
+        .sorted { $0.lastSeen > $1.lastSeen }
     }
 
     init(manager: SessionManager) { self.manager = manager }
@@ -309,4 +316,6 @@ public struct ConnectedAgent: Sendable, Identifiable {
     public let address: String
     public let lastSeen: Date
     public let desktops: Int
+    /// MCP sessions this agent has open from that computer.
+    public let sessions: Int
 }

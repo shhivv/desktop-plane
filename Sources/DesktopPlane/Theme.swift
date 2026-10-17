@@ -63,7 +63,8 @@ struct SecondaryButton: ButtonStyle {
             .padding(.horizontal, large ? 16 : 11)
             .frame(height: large ? 34 : 28)
             .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color.white.opacity(configuration.isPressed ? 0.14 : (hover ? 0.1 : 0.065))))
+                .fill(Color.white.opacity(configuration.isPressed ? 0.2 : (hover ? 0.16 : 0.11))))
+            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Color.white.opacity(0.08)))
             .opacity(enabled ? 1 : 0.4)
             .contentShape(Rectangle())
             .onHover { hover = $0 }

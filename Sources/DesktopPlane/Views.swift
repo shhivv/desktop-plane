@@ -111,22 +111,24 @@ private struct TopBar: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 10) {
-                Mark(size: 16)
-                Text("Desktop Plane").font(T.sans(14, .semibold))
-                Spacer()
-                ReachBadge()
-            }
-            .padding(.leading, 84)
-            .padding(.trailing, 20)
-            .frame(height: 50)
-            HStack(spacing: 2) {
+            // The window buttons sit alone in this strip.
+            Color.clear.frame(height: 30)
+            HStack(alignment: .bottom, spacing: 0) {
+                HStack(spacing: 9) {
+                    Mark(size: 16)
+                    Text("Desktop Plane").font(T.sans(14, .semibold))
+                }
+                .frame(height: 36, alignment: .center)
+                .padding(.trailing, 28)
                 ForEach(Dashboard.Pane.allCases) { p in
                     Tab(title: p.rawValue, active: p == pane) { pane = p }
                 }
                 Spacer()
+                ReachBadge().frame(height: 36)
             }
-            .padding(.horizontal, 26)
+            .frame(maxWidth: 1040)
+            .padding(.horizontal, 36)
+            .frame(maxWidth: .infinity)
             Rectangle().fill(T.border).frame(height: 1)
         }
 
@@ -161,7 +163,7 @@ private struct Tab: View {
                     .font(T.sans(13.5, active ? .medium : .regular))
                     .foregroundStyle(active || hover ? T.text : T.muted)
                     .padding(.horizontal, 10)
-                    .frame(height: 34)
+                    .frame(height: 34.5)
                 Rectangle().fill(active ? T.text : .clear).frame(height: 1.5).padding(.horizontal, 10)
             }
             .fixedSize()
@@ -312,11 +314,16 @@ private struct AgentsPane: View {
                         HStack(spacing: 10) {
                             LED()
                             Text(AgentName.pretty(a.name)).font(T.sans(13.5, .medium))
-                            Text(a.address.isEmpty || a.address == "127.0.0.1" ? "this Mac" : a.address)
-                                .font(T.mono(11)).foregroundStyle(T.faint)
+                            if a.address.isEmpty || a.address == "127.0.0.1" {
+                                Text("on this Mac").font(T.sans(12.5)).foregroundStyle(T.faint)
+                            } else {
+                                Text(a.address).font(T.mono(11.5)).foregroundStyle(T.faint)
+                            }
                             Spacer()
-                            Text(a.desktops == 1 ? "1 desktop" : "\(a.desktops) desktops").font(T.sans(12.5)).foregroundStyle(T.muted)
-                            Text(a.lastSeen, style: .relative).font(T.sans(12.5)).foregroundStyle(T.faint).frame(width: 90, alignment: .trailing)
+                            if a.desktops > 0 {
+                                Text(a.desktops == 1 ? "Using 1 desktop" : "Using \(a.desktops) desktops").font(T.sans(12.5)).foregroundStyle(T.muted)
+                            }
+                            Text(lastSeen(a.lastSeen)).font(T.sans(12.5)).foregroundStyle(T.faint).frame(width: 110, alignment: .trailing)
                         }
                         .padding(.horizontal, 16).frame(height: 46)
                         if a.id != agents.last?.id { Rectangle().fill(T.border).frame(height: 1) }
@@ -332,6 +339,12 @@ private struct AgentsPane: View {
             LocalAgents()
         }
     }
+}
+
+private func lastSeen(_ d: Date) -> String {
+    let s = Int(-d.timeIntervalSinceNow)
+    if s < 60 { return "Active now" }
+    return "\(s / 60) min ago"
 }
 
 /// A titled section: a short description on the left, its content on the right.
