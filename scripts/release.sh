@@ -2,7 +2,7 @@
 # Builds a signed, notarized dist/DesktopPlane-<version>.dmg that opens cleanly on any Mac.
 #   SIGN_ID="Developer ID Application: …" NOTARY_PROFILE=<profile> VERSION=0.2.0 scripts/release.sh
 # NOTARY_PROFILE is a notarytool keychain profile, made once with:
-#   xcrun notarytool store-credentials <profile> --apple-id <id> --team-id <team> --password <app-specific password>
+#   xcrun notarytool store-credentials <profile> --apple-id <id> --team-id <team>   (prompts for an app-specific password)
 # Leave NOTARY_PROFILE unset to build and sign without notarizing.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -20,6 +20,15 @@ for exe in planed DesktopPlane; do
 done
 codesign --force --sign "$SIGN_ID" --timestamp --options runtime --entitlements scripts/entitlements.plist "$APP"
 codesign --verify --deep --strict --verbose=2 "$APP"
+
+# Notarize and staple the app itself, so it opens offline even after it leaves the DMG.
+if [ -n "${NOTARY_PROFILE:-}" ]; then
+  ZIP=$(mktemp -d)/app.zip
+  ditto -c -k --keepParent "$APP" "$ZIP"
+  xcrun notarytool submit "$ZIP" --keychain-profile "$NOTARY_PROFILE" --wait
+  xcrun stapler staple "$APP"
+  spctl --assess --type execute --verbose "$APP"
+fi
 
 DMG="dist/DesktopPlane-$VERSION.dmg"
 STAGE=$(mktemp -d)
