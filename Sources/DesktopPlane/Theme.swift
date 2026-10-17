@@ -1,5 +1,4 @@
 import AppKit
-import CoreText
 import SwiftUI
 
 /// The app's look. Quiet warm graphite; the Mac mini's power light is the one bright thing,
@@ -20,49 +19,18 @@ enum T {
     static let amber = Color(hex: 0xE3A857)
     static let red = Color(hex: 0xE0644C)
 
-    // Type: Funnel Display for headings, Funnel Sans for the interface, Martian Mono only for
-    // what a person copies (commands, URLs, ids). Scale: 32 / 20 / 15 / 13 / 11.5.
-    static func display(_ size: CGFloat = 32) -> Font {
-        Fonts.ready ? .custom("FunnelDisplay-Light_Medium", fixedSize: size) : .system(size: size, weight: .semibold)
-    }
-
-    static func sans(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
-        let name = switch weight {
-        case .medium: "FunnelSans-Light_Medium"
-        case .semibold, .bold, .heavy, .black: "FunnelSans-Light_SemiBold"
-        default: "FunnelSans-Light_Regular"
-        }
-        return Fonts.ready ? .custom(name, fixedSize: size) : .system(size: size, weight: weight)
-    }
-
+    // Type: SF Pro throughout, SF Mono only for what a person copies (commands, URLs, ids).
+    // Scale: 32 / 20 / 15 / 13 / 11.5.
+    static func display(_ size: CGFloat = 32) -> Font { .system(size: size, weight: .semibold) }
+    static func sans(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font { .system(size: size, weight: weight) }
     static func mono(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
-        Fonts.ready ? .custom(weight == .regular ? "MartianMono-SemiExpandedRegular_Regular" : "MartianMono-SemiExpandedRegular_Medium", fixedSize: size * 0.92)
-            : .system(size: size, weight: weight, design: .monospaced)
+        .system(size: size, weight: weight, design: .monospaced)
     }
 }
 
 extension Color {
     init(hex: UInt32) {
         self.init(red: Double((hex >> 16) & 0xFF) / 255, green: Double((hex >> 8) & 0xFF) / 255, blue: Double(hex & 0xFF) / 255)
-    }
-}
-
-/// Registers the bundled fonts (Contents/Resources/Fonts in the app, assets/fonts in a
-/// checkout) for this process.
-enum Fonts {
-    nonisolated(unsafe) static var ready = false
-
-    static func register() {
-        let candidates = [
-            Bundle.main.resourceURL?.appendingPathComponent("Fonts"),
-            URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../assets/fonts").standardized,
-        ].compactMap { $0 }
-        guard let dir = candidates.first(where: { FileManager.default.fileExists(atPath: $0.appendingPathComponent("FunnelSans.ttf").path) }),
-              let files = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) else { return }
-        for f in files where f.pathExtension == "ttf" {
-            CTFontManagerRegisterFontsForURL(f as CFURL, .process, nil)
-        }
-        ready = NSFont(name: "FunnelSans-Light_Regular", size: 12) != nil
     }
 }
 

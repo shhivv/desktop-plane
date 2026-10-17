@@ -19,7 +19,6 @@ APP="dist/Desktop Plane.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN/DesktopPlane" "$BIN/planed" "$APP/Contents/MacOS/"
-cp -R assets/fonts "$APP/Contents/Resources/Fonts"
 cp assets/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 
 AGENT="$APP/Contents/Resources/DesktopPlaneAgent.app"
