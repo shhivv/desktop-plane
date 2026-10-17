@@ -180,8 +180,8 @@ when a session is created, open only their own session.
 | GET | `/v1/volumes`, `/v1/volumes/:id` | access | size, bytes used, `attached_to` |
 | DELETE | `/v1/volumes/:id` | access | refused while attached |
 
-A desktop ends when it's deleted, when its lifetime passes, after its idle timeout (no MCP or
-network activity), or when the guest shuts down.
+A desktop ends when it's deleted, when its lifetime passes, after its idle timeout (no requests
+from an agent), or when the guest shuts down.
 
 </details>
 

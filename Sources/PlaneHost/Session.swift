@@ -85,10 +85,10 @@ public final class Session: NSObject, Identifiable {
         vm.delegate = self
         self.vm = vm
 
-        // The VM's only way out: this listener on its own vsock device.
-        let delegate = ProxyListenerDelegate(policy: policy, session: id) { [weak self] in
-            Task { @MainActor in self?.touch() }
-        }
+        // The VM's only way out: this listener on its own vsock device. Its traffic doesn't count
+        // as activity: macOS connects out in the background all the time, so an abandoned
+        // desktop would never go idle. Only an agent's own requests keep a desktop alive.
+        let delegate = ProxyListenerDelegate(policy: policy, session: id) {}
         let listener = VZVirtioSocketListener()
         listener.delegate = delegate
         try GuestLink(vm: vm).device.setSocketListener(listener, forPort: VsockPort.hostProxy)
