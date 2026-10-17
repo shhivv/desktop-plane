@@ -46,7 +46,7 @@ struct MainView: View {
         Group {
             if let err = model.startError {
                 VStack(spacing: 12) {
-                    Mark(size: 34).opacity(0.5)
+                    MacMini(width: 160, on: false)
                     Text("Desktop Plane couldn't start").font(T.sans(18, .semibold))
                     Text(err).font(T.sans(13)).foregroundStyle(T.muted).textSelection(.enabled)
                 }
@@ -57,7 +57,7 @@ struct MainView: View {
                 Dashboard()
             }
         }
-        .blackChrome()
+        .basementChrome()
     }
 }
 
@@ -75,6 +75,7 @@ struct Dashboard: View {
     var body: some View {
         VStack(spacing: 0) {
             TopBar(pane: $pane)
+                .background(alignment: .top) { Lamplight(height: 420).offset(y: -40) }
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
                     if let e = model.lastError {
@@ -115,7 +116,7 @@ private struct TopBar: View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
                 Mark(size: 18)
-                Text("Desktop Plane").font(T.sans(14, .semibold))
+                Text("Desktop Plane").font(T.serif(20))
                 Text("/").foregroundStyle(T.borderStrong).font(T.sans(18))
                 Text(Host.current().localizedName ?? "This Mac").font(T.sans(14)).foregroundStyle(T.muted)
                 Spacer()
@@ -151,7 +152,8 @@ private struct Tab: View {
                     .padding(.horizontal, 12)
                     .frame(height: 34)
                     .background(RoundedRectangle(cornerRadius: 6).fill(hover && !active ? T.raised : .clear))
-                Rectangle().fill(active ? T.text : .clear).frame(height: 2).padding(.horizontal, 8)
+                Rectangle().fill(active ? T.lamp : .clear).frame(height: 2).padding(.horizontal, 8)
+                    .shadow(color: active ? T.lamp.opacity(0.7) : .clear, radius: 4)
             }
             .fixedSize()
         }
@@ -164,7 +166,7 @@ private struct StatusPill: View {
     @EnvironmentObject var model: AppModel
     var body: some View {
         HStack(spacing: 8) {
-            Dot(color: model.service == nil ? T.faint : T.green, pulse: model.service != nil)
+            LED(on: model.service != nil)
             Text(model.service.map { $0.settings.mcpURL.replacingOccurrences(of: "http://", with: "") } ?? "Stopped")
                 .font(T.mono(11.5)).foregroundStyle(T.muted)
         }
@@ -182,7 +184,7 @@ private struct PaneHeader<Trailing: View>: View {
     var body: some View {
         HStack(alignment: .center) {
             VStack(alignment: .leading, spacing: 6) {
-                Text(title).font(T.sans(28, .semibold)).tracking(-0.8)
+                Text(title).font(T.serif(42))
                 Text(subtitle).font(T.sans(14)).foregroundStyle(T.muted)
             }
             Spacer()
@@ -222,8 +224,8 @@ private struct DesktopsPane: View {
 private struct EmptyDesktops: View {
     var body: some View {
         VStack(spacing: 14) {
-            Mark(size: 34).opacity(0.6)
-            Text("No desktops running").font(T.sans(16, .medium))
+            MacMini(width: 200, on: false).padding(.bottom, 10)
+            Text("The Mac is waiting").font(T.serif(28))
             Text("Your agent starts one when it needs a screen. Ask it something like:")
                 .font(T.sans(13.5)).foregroundStyle(T.muted)
             Terminal(text: "Start a desktop with Safari, open apple.com and tell me the headline.", prompt: "›")
@@ -263,9 +265,12 @@ private struct DesktopCard: View {
             Rectangle().fill(T.border).frame(height: 1)
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 8) {
-                    Dot(color: color, pulse: session.state == .starting)
+                    LED(color: color, pulse: session.state == .starting)
                     Text(session.id).font(T.mono(12.5, .medium))
                     Spacer()
+                    if session.agentAttached {
+                        HStack(spacing: 6) { AgentOrb(size: 15); Text("agent driving").font(T.sans(11.5)).foregroundStyle(T.muted) }
+                    }
                     TimelineView(.periodic(from: .now, by: 30)) { _ in
                         Text(remaining).font(T.mono(11.5)).foregroundStyle(T.faint)
                     }
@@ -284,8 +289,8 @@ private struct DesktopCard: View {
             .padding(14)
         }
         .background(T.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(hover ? T.borderStrong : T.border))
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(hover ? T.borderStrong : T.border))
         .onHover { hover = $0 }
     }
 
@@ -297,7 +302,7 @@ private struct DesktopCard: View {
 
     private var color: Color {
         switch session.state {
-        case .ready: T.green
+        case .ready: T.led
         case .starting: T.amber
         case .stopping: T.amber
         case .stopped, .failed: T.faint
@@ -390,7 +395,7 @@ private struct VolumesPane: View {
                             }
                             Spacer()
                             if let s = m.attachedSession(v.id) {
-                                HStack(spacing: 6) { Dot(color: T.green); Text(s).font(T.mono(11.5)).foregroundStyle(T.muted) }
+                                HStack(spacing: 6) { LED(); Text(s).font(T.mono(11.5)).foregroundStyle(T.muted) }
                             }
                             Button("Copy ID") { model.copy(v.id) }.buttonStyle(SecondaryButton())
                             Button("Delete") { model.run { try m.deleteVolume(v.id) } }
@@ -458,7 +463,7 @@ private struct SettingsPane: View {
             VStack(spacing: 0) {
                 SettingRow(title: "Launch at login", detail: "Keep desktops available after a restart.") {
                     Toggle("", isOn: Binding(get: { model.launchAtLogin }, set: { model.launchAtLogin = $0 }))
-                        .labelsHidden().toggleStyle(.switch).tint(T.green)
+                        .labelsHidden().toggleStyle(.switch).tint(T.lamp)
                 }
                 Rectangle().fill(T.border).frame(height: 1)
                 SettingRow(title: "Golden image", detail: model.imageSummary) {

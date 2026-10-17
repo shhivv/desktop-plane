@@ -19,7 +19,7 @@ struct DesktopPlaneApp: App {
             MenuBarIcon().environmentObject(model)
         }
         Window("Desktop Plane", id: "main") {
-            MainView().environmentObject(model).frame(minWidth: 1040, minHeight: 680)
+            MainView().environmentObject(model).frame(minWidth: 1040, minHeight: 720)
         }
         .windowResizability(.contentMinSize)
         .windowStyle(.hiddenTitleBar)

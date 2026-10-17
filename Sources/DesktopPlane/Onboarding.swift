@@ -23,7 +23,7 @@ struct OnboardingView: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            GridBackdrop().frame(height: 560)
+            Lamplight().ignoresSafeArea()
             VStack(spacing: 0) {
                 TopProgress(current: model.onboardingStep)
                 Group {
@@ -51,13 +51,14 @@ private struct TopProgress: View {
         HStack(spacing: 18) {
             HStack(spacing: 10) {
                 Mark(size: 18)
-                Text("Desktop Plane").font(T.sans(14, .semibold))
+                Text("Desktop Plane").font(T.serif(20))
             }
             Spacer()
             HStack(spacing: 6) {
                 ForEach(OnboardingView.Step.allCases, id: \.self) { s in
                     VStack(alignment: .leading, spacing: 7) {
-                        Capsule().fill(s.rawValue <= current.rawValue ? T.text : T.borderStrong).frame(height: 2)
+                        Capsule().fill(s.rawValue < current.rawValue ? T.text : (s == current ? T.lamp : T.borderStrong)).frame(height: 2)
+                            .shadow(color: s == current ? T.lamp.opacity(0.8) : .clear, radius: 4)
                         Text(s.title).font(T.sans(11, s == current ? .medium : .regular))
                             .foregroundStyle(s == current ? T.text : T.faint)
                     }
@@ -83,11 +84,11 @@ private struct StepPage<Content: View, Actions: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Eyebrow(text: String(format: "Step %02d / %02d", step.rawValue + 1, OnboardingView.Step.allCases.count))
-            Text(title).font(T.sans(40, .semibold)).tracking(-1.2).padding(.top, 14)
+            Text(title).font(T.serif(50)).padding(.top, 8)
             Text(subtitle).font(T.sans(16)).foregroundStyle(T.muted).lineSpacing(4).padding(.top, 12)
                 .fixedSize(horizontal: false, vertical: true)
-            content.padding(.top, 36)
-            Spacer(minLength: 24)
+            content.padding(.top, 28)
+            Spacer(minLength: 16)
             HStack(spacing: 10) {
                 ErrorLine()
                 Spacer()
@@ -95,8 +96,8 @@ private struct StepPage<Content: View, Actions: View>: View {
             }
         }
         .frame(maxWidth: 640, alignment: .leading)
-        .padding(.top, 56)
-        .padding(.bottom, 40)
+        .padding(.top, 28)
+        .padding(.bottom, 32)
         .padding(.horizontal, 40)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
@@ -123,7 +124,8 @@ private struct WelcomeStep: View {
     var body: some View {
         let checks = HostCheck.all()
         StepPage(step: .welcome, title: "Desktops for your agents",
-                 subtitle: "Throwaway macOS desktops that Claude Code, Codex or any MCP client can drive. Each is a fresh VM, sealed off from this Mac and your network, and deleted when the agent is done.") {
+                 subtitle: "That spare Mac becomes throwaway macOS desktops that Claude Code, Codex or any MCP client can drive. Each is a fresh VM, sealed off from this Mac and your network, and gone when the agent is done.") {
+            ArrivalScene().padding(.bottom, 24)
             Panel(padding: 0) {
                 VStack(spacing: 0) {
                     ForEach(Array(checks.enumerated()), id: \.element.id) { i, c in
@@ -137,6 +139,34 @@ private struct WelcomeStep: View {
                 .buttonStyle(PrimaryButton(large: true))
                 .disabled(checks.contains { $0.blocking && !$0.ok })
                 .keyboardShortcut(.defaultAction)
+        }
+    }
+}
+
+/// The film's opening in miniature: the Mac in lamplight, two agents rolling up to it.
+private struct ArrivalScene: View {
+    @State private var arrived = false
+
+    var body: some View {
+        HStack(alignment: .bottom, spacing: 0) {
+            Spacer()
+            AgentOrb(size: 30, looking: arrived ? 1 : 0)
+                .offset(x: arrived ? 0 : -160)
+                .rotationEffect(.degrees(arrived ? 0 : -300))
+                .opacity(arrived ? 1 : 0)
+                .padding(.trailing, 14)
+            AgentOrb(size: 24, looking: arrived ? 1 : 0)
+                .offset(x: arrived ? 0 : -220)
+                .rotationEffect(.degrees(arrived ? 0 : -400))
+                .opacity(arrived ? 1 : 0)
+                .padding(.trailing, 28)
+                .padding(.bottom, 2)
+            MacMini(width: 200, on: arrived)
+            Spacer()
+        }
+        .frame(height: 80, alignment: .bottom)
+        .onAppear {
+            withAnimation(.spring(response: 1.4, dampingFraction: 0.75).delay(0.3)) { arrived = true }
         }
     }
 }
@@ -156,7 +186,7 @@ private struct CheckRow: View {
             Text(check.detail).font(T.sans(13)).foregroundStyle(T.muted)
         }
         .padding(.horizontal, 18)
-        .frame(height: 54)
+        .frame(height: 48)
     }
 }
 
@@ -287,7 +317,7 @@ private struct SetupInstructions: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Eyebrow(text: "Step 03 / 05")
-            Text("Set up the desktop").font(T.sans(34, .semibold)).tracking(-1).padding(.top, 14)
+            Text("Set up the desktop").font(T.serif(46)).padding(.top, 10)
             Text("A few clicks inside the VM that macOS only lets a person make. Once, and every desktop starts from the result.")
                 .font(T.sans(14)).foregroundStyle(T.muted).lineSpacing(3).padding(.top, 10)
                 .fixedSize(horizontal: false, vertical: true)
@@ -296,7 +326,7 @@ private struct SetupInstructions: View {
                             detail: "Create a local account. Skip Apple Account, Location Services and Siri.")
                 Instruction(n: 2, title: "Run the installer",
                             detail: "Open Terminal in the VM (⌘ Space, Terminal) and type:") {
-                    Terminal(text: SetupStep.command).padding(.top, 4)
+                    Terminal(text: SetupStep.command, fit: true).padding(.top, 4)
                 }
                 Instruction(n: 3, title: "Allow two permissions",
                             detail: "Turn on Desktop Plane Agent under Accessibility and Screen Recording when System Settings opens.")
@@ -322,8 +352,8 @@ private struct SetupScreen: View {
                     VMDisplay(vm: vm, interactive: true).clipShape(RoundedRectangle(cornerRadius: 10))
                 } else {
                     VStack(spacing: 12) {
-                        Mark(size: 30).opacity(0.4)
-                        Text("The VM appears here").font(T.sans(13)).foregroundStyle(T.faint)
+                        MacMini(width: 150, on: false).opacity(0.7)
+                        Text("The VM appears here").font(T.sans(13)).foregroundStyle(T.faint).padding(.top, 14)
                     }
                 }
             }
@@ -331,7 +361,7 @@ private struct SetupScreen: View {
             .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(T.border))
             HStack(spacing: 10) {
                 if b.provisioningVM != nil {
-                    Dot(color: T.green, pulse: true)
+                    LED(pulse: true)
                     Text("Running · click inside to type").font(T.sans(12.5)).foregroundStyle(T.muted)
                     Spacer()
                     Button("Open in window") { model.popOutProvisioning() }.buttonStyle(SecondaryButton())
@@ -467,7 +497,7 @@ struct AgentsList: View {
                 if state[agent] == "adding" {
                     ProgressView().controlSize(.small)
                 } else if state[agent] == "added" {
-                    HStack(spacing: 7) { Dot(color: T.green); Text("Connected").font(T.sans(13, .medium)) }
+                    HStack(spacing: 8) { AgentOrb(size: 18); Text("Connected").font(T.sans(13, .medium)) }
                 } else {
                     Button("Add") { add(agent) }
                         .buttonStyle(PrimaryButton())

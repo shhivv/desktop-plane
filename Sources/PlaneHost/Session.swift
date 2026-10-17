@@ -29,7 +29,7 @@ public final class Session: NSObject, Identifiable {
     public internal(set) var volume: Volume?
     private var usbDevice: AnyObject?
     var lan: VirtualLAN?
-    var mcp: [String: MCPBridge] = [:]
+    var mcp: [String: MCPBridge] = [:] { didSet { onChange?() } }
     var proxyListener: VZVirtioSocketListener?
     private var proxyDelegate: ProxyListenerDelegate?
     var onChange: (() -> Void)?
@@ -46,6 +46,9 @@ public final class Session: NSObject, Identifiable {
     }
 
     func touch() { lastActivity = Date() }
+
+    /// Whether an agent has a driver connection open to this desktop right now.
+    public var agentAttached: Bool { !mcp.isEmpty }
 
     /// Restores in progress, host-wide. Cold boots wait for them (see boot).
     static var restoresInFlight = 0

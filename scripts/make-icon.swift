@@ -13,26 +13,46 @@ func render(_ px: Int) -> Data {
     let inset = s * 100 / 1024
     let body = NSRect(x: inset, y: inset, width: s - 2 * inset, height: s - 2 * inset)
     let squircle = NSBezierPath(roundedRect: body, xRadius: body.width * 0.225, yRadius: body.width * 0.225)
-    NSGradient(colors: [NSColor(white: 0.13, alpha: 1), NSColor(white: 0.0, alpha: 1)])!.draw(in: squircle, angle: -90)
-    NSColor(white: 1, alpha: 0.12).setStroke()
+    func c(_ hex: UInt32, _ a: CGFloat = 1) -> NSColor {
+        NSColor(srgbRed: CGFloat((hex >> 16) & 0xFF) / 255, green: CGFloat((hex >> 8) & 0xFF) / 255, blue: CGFloat(hex & 0xFF) / 255, alpha: a)
+    }
+    // Warm black, lit from a bulb above (see Theme.swift).
+    c(0x0F0D0B).setFill()
+    squircle.fill()
+    NSGraphicsContext.current?.saveGraphicsState()
+    squircle.addClip()
+    NSGradient(colors: [c(0xF2C27B, 0.32), c(0xF2C27B, 0.08), c(0xF2C27B, 0)])!
+        .draw(fromCenter: NSPoint(x: body.midX, y: body.maxY), radius: 0,
+              toCenter: NSPoint(x: body.midX, y: body.maxY), radius: body.width * 0.95, options: [])
+    NSGraphicsContext.current?.restoreGraphicsState()
+    c(0xF2EBE1, 0.1).setStroke()
     squircle.lineWidth = s / 512
     squircle.stroke()
 
-    // The mark: a filled window behind an outlined one (see Mark in Theme.swift; y is flipped here).
-    let m = body.width * 0.5
-    let origin = NSPoint(x: body.midX - m / 2, y: body.midY - m / 2)
-    let w = m * 0.72, h = m * 0.56, r = m * 0.14
-    let back = NSRect(x: origin.x + m * 0.28, y: origin.y + m - m * 0.06 - h, width: w, height: h)
-    let front = NSRect(x: origin.x, y: origin.y + m - m * 0.38 - h, width: w, height: h)
-    NSColor(white: 0.93, alpha: 1).setFill()
-    NSBezierPath(roundedRect: back, xRadius: r, yRadius: r).fill()
-    NSColor(white: 0.04, alpha: 1).setFill()
-    NSBezierPath(roundedRect: front, xRadius: r, yRadius: r).fill()
-    let lw = m * 0.08
-    let outline = NSBezierPath(roundedRect: front.insetBy(dx: lw / 2, dy: lw / 2), xRadius: r - lw / 2, yRadius: r - lw / 2)
-    outline.lineWidth = lw
-    NSColor(white: 0.93, alpha: 1).setStroke()
-    outline.stroke()
+    // The Mac mini from the app (MacMini in Theme.swift): top face in lamplight, front edge in
+    // shadow, power light on. y runs up here.
+    let w = body.width * 0.62, top = w * 0.2, front = w * 0.1
+    let x0 = body.midX - w / 2, yFront = body.midY - (top + front) / 2 - body.height * 0.03
+    let taper = w * 0.07
+    let face = NSBezierPath()
+    face.move(to: NSPoint(x: x0, y: yFront + front))
+    face.line(to: NSPoint(x: x0 + w, y: yFront + front))
+    face.line(to: NSPoint(x: x0 + w - taper, y: yFront + front + top - top * 0.25))
+    face.curve(to: NSPoint(x: x0 + w - taper - top * 0.4, y: yFront + front + top),
+               controlPoint1: NSPoint(x: x0 + w - taper - top * 0.05, y: yFront + front + top), controlPoint2: NSPoint(x: x0 + w - taper - top * 0.2, y: yFront + front + top))
+    face.line(to: NSPoint(x: x0 + taper + top * 0.4, y: yFront + front + top))
+    face.curve(to: NSPoint(x: x0 + taper, y: yFront + front + top - top * 0.25),
+               controlPoint1: NSPoint(x: x0 + taper + top * 0.2, y: yFront + front + top), controlPoint2: NSPoint(x: x0 + taper + top * 0.05, y: yFront + front + top))
+    face.close()
+    NSGradient(colors: [c(0x8A8075), c(0x4E473F)])!.draw(in: face, angle: 90)
+    let edge = NSBezierPath(roundedRect: NSRect(x: x0, y: yFront, width: w, height: front + 1), xRadius: front * 0.45, yRadius: front * 0.45)
+    NSGradient(colors: [c(0x14110E), c(0x2E2924)])!.draw(in: edge, angle: 90)
+    let d = front * 0.32
+    let center = NSPoint(x: x0 + w - w * 0.08, y: yFront + front / 2)
+    NSGradient(colors: [c(0xF2C27B, 0.75), c(0xF2C27B, 0)])!
+        .draw(fromCenter: center, radius: 0, toCenter: center, radius: d * 3.2, options: [])
+    c(0xFFF4E0).setFill()
+    NSBezierPath(ovalIn: NSRect(x: center.x - d / 2, y: center.y - d / 2, width: d, height: d)).fill()
     NSGraphicsContext.restoreGraphicsState()
     return rep.representation(using: .png, properties: [:])!
 }
