@@ -18,6 +18,8 @@ final class PlaneMCP {
     final class Client {
         /// Desktops this client started, oldest first.
         var desktops: [String] = []
+        /// Whether it has ever started one; such a client never falls back to someone else's.
+        var startedAny = false
         /// One initialized driver connection per desktop.
         var bridges: [String: MCPBridge] = [:]
         /// Connections being opened, so parallel calls share one instead of racing.
@@ -216,6 +218,7 @@ final class PlaneMCP {
                 }
                 let s = try await manager.create(req)
                 client.desktops.append(s.id)
+                client.startedAny = true
                 return try text(describe(s, client))
             case "desktop_list":
                 return try text(["desktops": manager.sessions.map { describe($0, client) }])
@@ -269,8 +272,8 @@ final class PlaneMCP {
         if mine.count > 1 {
             throw APIError(400, "you have several desktops (\(mine.map(\.id).joined(separator: ", "))); pass `desktop`")
         }
-        if !ending, client.desktops.isEmpty, ready.count == 1 { return ready[0] }
-        if !client.desktops.isEmpty { throw APIError(404, "your desktop has ended; start one with desktop_create") }
+        if !ending, !client.startedAny, ready.count == 1 { return ready[0] }
+        if client.startedAny { throw APIError(404, "your desktop has ended; start one with desktop_create") }
         if ready.isEmpty { throw APIError(404, "no desktop is running; start one with desktop_create") }
         throw APIError(400, ending ? "pass `desktop` to end a desktop you didn't start"
                                    : "several desktops are running (\(ready.map(\.id).joined(separator: ", "))); pass `desktop`")
