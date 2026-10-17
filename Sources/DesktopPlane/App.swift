@@ -10,6 +10,8 @@ struct DesktopPlaneApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var delegate
     @StateObject private var model = AppModel.shared
 
+    init() { Fonts.register() }
+
     var body: some Scene {
         MenuBarExtra {
             MenuContent().environmentObject(model)

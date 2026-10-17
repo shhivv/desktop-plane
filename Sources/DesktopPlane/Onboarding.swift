@@ -14,77 +14,67 @@ struct OnboardingView: View {
             switch self {
             case .welcome: "Welcome"
             case .install: "Install macOS"
-            case .setup: "Set up the desktop"
-            case .snapshot: "Save the snapshot"
-            case .connect: "Connect your agent"
+            case .setup: "Set up"
+            case .snapshot: "Snapshot"
+            case .connect: "Connect"
             }
         }
     }
 
     var body: some View {
-        HStack(spacing: 0) {
-            Rail(current: model.onboardingStep)
-                .frame(width: 230)
-                .background(Color.primary.opacity(0.035))
-            Divider()
-            Group {
-                switch model.onboardingStep {
-                case .welcome: WelcomeStep()
-                case .install: InstallStep()
-                case .setup: SetupStep()
-                case .snapshot: SnapshotStep()
-                case .connect: ConnectStep()
+        ZStack(alignment: .top) {
+            GridBackdrop().frame(height: 560)
+            VStack(spacing: 0) {
+                TopProgress(current: model.onboardingStep)
+                Group {
+                    switch model.onboardingStep {
+                    case .welcome: WelcomeStep()
+                    case .install: InstallStep()
+                    case .setup: SetupStep()
+                    case .snapshot: SnapshotStep()
+                    case .connect: ConnectStep()
+                    }
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .transition(.opacity.combined(with: .offset(y: 6)))
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .transition(.opacity)
         }
-        .animation(.easeInOut(duration: 0.2), value: model.onboardingStep)
+        .animation(.easeOut(duration: 0.25), value: model.onboardingStep)
     }
 }
 
-/// The step list down the left side.
-private struct Rail: View {
+/// Mark on the left, step segments across the top.
+private struct TopProgress: View {
     let current: OnboardingView.Step
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        HStack(spacing: 18) {
             HStack(spacing: 10) {
-                AppGlyph(size: 28)
-                Text("Desktop Plane").font(.headline)
-            }
-            .padding(.bottom, 28)
-            ForEach(OnboardingView.Step.allCases, id: \.self) { step in
-                HStack(spacing: 10) {
-                    ZStack {
-                        Circle()
-                            .fill(step.rawValue < current.rawValue ? Color.accentColor : .clear)
-                            .strokeBorder(step.rawValue <= current.rawValue ? Color.accentColor : .secondary.opacity(0.4), lineWidth: 1.5)
-                            .frame(width: 20, height: 20)
-                        if step.rawValue < current.rawValue {
-                            Image(systemName: "checkmark").font(.system(size: 10, weight: .bold)).foregroundStyle(.white)
-                        } else {
-                            Text("\(step.rawValue + 1)").font(.system(size: 10, weight: .semibold))
-                                .foregroundStyle(step == current ? Color.accentColor : .secondary)
-                        }
-                    }
-                    Text(step.title)
-                        .fontWeight(step == current ? .semibold : .regular)
-                        .foregroundStyle(step.rawValue > current.rawValue ? .secondary : .primary)
-                }
-                .padding(.vertical, 9)
+                Mark(size: 18)
+                Text("Desktop Plane").font(T.sans(14, .semibold))
             }
             Spacer()
-            Text("About 30 minutes, most of it waiting on the macOS download.")
-                .font(.caption).foregroundStyle(.secondary)
+            HStack(spacing: 6) {
+                ForEach(OnboardingView.Step.allCases, id: \.self) { s in
+                    VStack(alignment: .leading, spacing: 7) {
+                        Capsule().fill(s.rawValue <= current.rawValue ? T.text : T.borderStrong).frame(height: 2)
+                        Text(s.title).font(T.sans(11, s == current ? .medium : .regular))
+                            .foregroundStyle(s == current ? T.text : T.faint)
+                    }
+                    .frame(width: 92)
+                }
+            }
         }
-        .padding(24)
-        .frame(maxHeight: .infinity, alignment: .top)
+        .padding(.leading, 84)
+        .padding(.trailing, 32)
+        .padding(.top, 14)
+        .frame(height: 64)
     }
 }
 
-/// Shared layout for a step: title, subtitle, content, and the buttons at the bottom.
+/// A step's column: eyebrow, title, subtitle, content, then actions.
 private struct StepPage<Content: View, Actions: View>: View {
+    let step: OnboardingView.Step
     let title: String
     let subtitle: String
     @ViewBuilder let content: Content
@@ -92,20 +82,23 @@ private struct StepPage<Content: View, Actions: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text(title).font(.system(size: 26, weight: .semibold))
-            Text(subtitle).font(.title3).foregroundStyle(.secondary).padding(.top, 6)
+            Eyebrow(text: String(format: "Step %02d / %02d", step.rawValue + 1, OnboardingView.Step.allCases.count))
+            Text(title).font(T.sans(40, .semibold)).tracking(-1.2).padding(.top, 14)
+            Text(subtitle).font(T.sans(16)).foregroundStyle(T.muted).lineSpacing(4).padding(.top, 12)
                 .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: 620, alignment: .leading)
-            content.padding(.top, 28)
-            Spacer(minLength: 20)
-            HStack {
+            content.padding(.top, 36)
+            Spacer(minLength: 24)
+            HStack(spacing: 10) {
                 ErrorLine()
                 Spacer()
                 actions
             }
         }
-        .padding(40)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: 640, alignment: .leading)
+        .padding(.top, 56)
+        .padding(.bottom, 40)
+        .padding(.horizontal, 40)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 }
 
@@ -113,8 +106,11 @@ private struct ErrorLine: View {
     @EnvironmentObject var model: AppModel
     var body: some View {
         if let e = model.lastError {
-            Label(e, systemImage: "exclamationmark.triangle.fill")
-                .foregroundStyle(.orange).font(.callout).lineLimit(3).textSelection(.enabled)
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(T.amber)
+                Text(e).foregroundStyle(T.muted).lineLimit(3).textSelection(.enabled)
+            }
+            .font(T.sans(12.5))
         }
     }
 }
@@ -126,27 +122,41 @@ private struct WelcomeStep: View {
 
     var body: some View {
         let checks = HostCheck.all()
-        StepPage(title: "Turn this Mac into desktops for your agents",
-                 subtitle: "Desktop Plane runs throwaway macOS desktops that Claude Code, Codex or any MCP client can drive. Each one is a fresh VM, sealed off from this Mac and your network, and deleted when the agent is done.") {
-            VStack(alignment: .leading, spacing: 14) {
-                ForEach(checks) { c in
-                    HStack(spacing: 12) {
-                        Image(systemName: c.ok ? "checkmark.circle.fill" : (c.blocking ? "xmark.circle.fill" : "exclamationmark.circle.fill"))
-                            .foregroundStyle(c.ok ? .green : (c.blocking ? .red : .orange))
-                            .font(.title3)
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(c.title).fontWeight(.medium)
-                            Text(c.detail).font(.callout).foregroundStyle(.secondary)
-                        }
+        StepPage(step: .welcome, title: "Desktops for your agents",
+                 subtitle: "Throwaway macOS desktops that Claude Code, Codex or any MCP client can drive. Each is a fresh VM, sealed off from this Mac and your network, and deleted when the agent is done.") {
+            Panel(padding: 0) {
+                VStack(spacing: 0) {
+                    ForEach(Array(checks.enumerated()), id: \.element.id) { i, c in
+                        CheckRow(check: c)
+                        if i < checks.count - 1 { Rectangle().fill(T.border).frame(height: 1) }
                     }
                 }
             }
         } actions: {
-            Button("Get Started") { model.onboardingStep = .install }
-                .buttonStyle(.borderedProminent).controlSize(.large)
+            Button("Get started") { model.onboardingStep = .install }
+                .buttonStyle(PrimaryButton(large: true))
                 .disabled(checks.contains { $0.blocking && !$0.ok })
                 .keyboardShortcut(.defaultAction)
         }
+    }
+}
+
+private struct CheckRow: View {
+    let check: HostCheck
+    var body: some View {
+        let color = check.ok ? T.green : (check.blocking ? T.red : T.amber)
+        HStack(spacing: 14) {
+            Image(systemName: check.ok ? "checkmark" : (check.blocking ? "xmark" : "exclamationmark"))
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(color)
+                .frame(width: 22, height: 22)
+                .background(Circle().fill(color.opacity(0.12)))
+            Text(check.title).font(T.sans(14, .medium))
+            Spacer()
+            Text(check.detail).font(T.sans(13)).foregroundStyle(T.muted)
+        }
+        .padding(.horizontal, 18)
+        .frame(height: 54)
     }
 }
 
@@ -163,16 +173,16 @@ struct HostCheck: Identifiable {
         let freeGB = Int((values?.volumeAvailableCapacityForImportantUsage ?? 0) >> 30)
         let os = ProcessInfo.processInfo.operatingSystemVersion
         return [
-            HostCheck(id: "cpu", title: "Apple silicon", detail: "macOS VMs need an M-series Mac.",
+            HostCheck(id: "cpu", title: "Apple silicon", detail: VZVirtualMachine.isSupported ? "Supported" : "macOS VMs need an M-series Mac",
                       ok: VZVirtualMachine.isSupported, blocking: true),
             HostCheck(id: "os", title: "macOS \(os.majorVersion).\(os.minorVersion)",
-                      detail: os.majorVersion >= 15 ? "Everything is supported, including data volumes." : "Works; data volumes need macOS 15.",
+                      detail: os.majorVersion >= 15 ? "Everything supported" : "Data volumes need macOS 15",
                       ok: os.majorVersion >= 15, blocking: false),
             HostCheck(id: "mem", title: "\(HostSettings.hostMemoryGB) GB memory",
-                      detail: HostSettings.hostMemoryGB >= 16 ? "Room for two desktops at 8 GB each." : "One desktop at a time is best on this Mac.",
+                      detail: HostSettings.hostMemoryGB >= 16 ? "Two desktops at once" : "One desktop at a time",
                       ok: HostSettings.hostMemoryGB >= 16, blocking: false),
             HostCheck(id: "disk", title: "\(freeGB) GB free",
-                      detail: freeGB >= 60 ? "The image and macOS download take about 60 GB." : "Free up to about 60 GB for the image and the macOS download.",
+                      detail: freeGB >= 60 ? "Needs about 60 GB" : "Free up about 60 GB",
                       ok: freeGB >= 60, blocking: freeGB < 40),
         ]
     }
@@ -186,24 +196,34 @@ private struct InstallStep: View {
     var body: some View {
         let b = model.builder
         let done = model.imageStage != nil && !b.busy
-        StepPage(title: "Install macOS",
-                 subtitle: "Downloads the latest macOS this Mac supports (about 17 GB) and installs it into a new virtual disk. You can leave this running and come back.") {
-            VStack(alignment: .leading, spacing: 12) {
-                if b.busy {
-                    ProgressRow(status: b.status, progress: b.progress)
-                } else if done {
-                    Label("macOS is installed.", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
-                }
+        StepPage(step: .install, title: "Install macOS",
+                 subtitle: "Downloads the latest macOS this Mac supports, about 17 GB, and installs it into a new virtual disk. You can leave this running.") {
+            if b.busy {
+                ProgressRow(status: b.status, progress: b.progress)
+            } else if done {
+                Done(text: "macOS is installed")
             }
         } actions: {
             if done {
                 Button("Continue") { model.onboardingStep = .setup }
-                    .buttonStyle(.borderedProminent).controlSize(.large).keyboardShortcut(.defaultAction)
+                    .buttonStyle(PrimaryButton(large: true)).keyboardShortcut(.defaultAction)
             } else {
+                Button("Back") { model.onboardingStep = .welcome }.buttonStyle(SecondaryButton(large: true)).disabled(b.busy)
                 Button("Install macOS") { model.run { try await b.install() } }
-                    .buttonStyle(.borderedProminent).controlSize(.large).disabled(b.busy)
+                    .buttonStyle(PrimaryButton(large: true)).disabled(b.busy)
                     .keyboardShortcut(.defaultAction)
             }
+        }
+    }
+}
+
+private struct Done: View {
+    let text: String
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "checkmark").font(.system(size: 10, weight: .bold)).foregroundStyle(T.green)
+                .frame(width: 22, height: 22).background(Circle().fill(T.green.opacity(0.12)))
+            Text(text).font(T.sans(14, .medium))
         }
     }
 }
@@ -212,23 +232,36 @@ struct ProgressRow: View {
     let status: String
     let progress: Double?
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if let progress {
-                ProgressView(value: progress).progressViewStyle(.linear)
-                HStack {
-                    Text(status)
-                    Spacer()
-                    Text("\(Int(progress * 100))%").monospacedDigit()
-                }
-                .font(.callout).foregroundStyle(.secondary)
-            } else {
-                HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
-                    Text(status).font(.callout).foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text(status).font(T.sans(13)).foregroundStyle(T.muted)
+                Spacer()
+                if let progress { Text("\(Int(progress * 100))%").font(T.mono(12)).foregroundStyle(T.text) }
+            }
+            GeometryReader { g in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(T.border)
+                    if let progress {
+                        Capsule().fill(T.text).frame(width: max(4, g.size.width * progress))
+                    } else {
+                        Shimmer()
+                    }
                 }
             }
+            .frame(height: 3)
         }
-        .frame(maxWidth: 520)
+    }
+}
+
+/// Indeterminate bar: a short segment that slides across.
+private struct Shimmer: View {
+    @State private var x: CGFloat = -0.3
+    var body: some View {
+        GeometryReader { g in
+            Capsule().fill(T.text).frame(width: g.size.width * 0.25).offset(x: g.size.width * x)
+        }
+        .clipShape(Capsule())
+        .onAppear { withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: false)) { x = 1.05 } }
     }
 }
 
@@ -236,78 +269,81 @@ struct ProgressRow: View {
 
 private struct SetupStep: View {
     @EnvironmentObject var model: AppModel
-    @State private var copied = false
 
     static let command = #"bash "/Volumes/My Shared Files/install.sh""#
 
     var body: some View {
-        let b = model.builder
-        let running = b.provisioningVM != nil
-        HStack(alignment: .top, spacing: 28) {
-            VStack(alignment: .leading, spacing: 0) {
-                Text("Set up the desktop").font(.system(size: 26, weight: .semibold))
-                Text("A few clicks inside the VM that macOS only lets a person make. You do this once; every desktop starts from the result.")
-                    .foregroundStyle(.secondary).padding(.top, 6).fixedSize(horizontal: false, vertical: true)
-                VStack(alignment: .leading, spacing: 18) {
-                    Instruction(n: 1, title: "Finish Setup Assistant",
-                                detail: "Create a local account with any name and password. Skip Apple Account, Location Services and Siri.")
-                    Instruction(n: 2, title: "Run the installer in Terminal",
-                                detail: "Open Terminal in the VM (Spotlight: ⌘ Space, type Terminal) and type:") {
-                        HStack(spacing: 8) {
-                            Text(Self.command).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
-                                .lineLimit(1).fixedSize()
-                            Spacer(minLength: 0)
-                            Button(copied ? "Copied" : "Copy") { model.copy(Self.command); copied = true }
-                                .controlSize(.small)
-                        }
-                        .padding(8)
-                        .background(.background, in: RoundedRectangle(cornerRadius: 6))
-                    }
-                    Instruction(n: 3, title: "Allow the two permissions",
-                                detail: "The installer opens System Settings for Accessibility and Screen Recording. Turn on Desktop Plane Agent in both.")
-                    Instruction(n: 4, title: "Shut down",
-                                detail: "When the installer says Done, choose Shut Down from the Apple menu. Desktop Plane continues by itself.")
-                }
-                .padding(.top, 24)
-                Spacer(minLength: 16)
-                ErrorLine()
-            }
-            .frame(width: 360)
-
-            VStack(spacing: 10) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 10).fill(.black.opacity(0.85))
-                    if let vm = b.provisioningVM {
-                        VMDisplay(vm: vm, interactive: true).clipShape(RoundedRectangle(cornerRadius: 10))
-                    } else {
-                        VStack(spacing: 8) {
-                            Image(systemName: "macwindow").font(.system(size: 40, weight: .light))
-                            Text("The VM appears here").font(.callout)
-                        }
-                        .foregroundStyle(.white.opacity(0.5))
-                    }
-                }
-                .aspectRatio(16.0 / 10.0, contentMode: .fit)
-                if running {
-                    HStack {
-                        Text("Click inside the VM to type there.")
-                            .font(.caption).foregroundStyle(.secondary)
-                        Spacer()
-                        Button("Open in Window") { model.popOutProvisioning() }.controlSize(.small)
-                    }
-                } else {
-                    HStack {
-                        if b.busy { ProgressView().controlSize(.small); Text(b.status).foregroundStyle(.secondary).font(.callout) }
-                        Spacer()
-                        Button("Start the VM") { model.provision() }
-                            .buttonStyle(.borderedProminent).controlSize(.large).disabled(b.busy)
-                            .keyboardShortcut(.defaultAction)
-                    }
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        HStack(alignment: .top, spacing: 40) {
+            SetupInstructions().frame(width: 430)
+            SetupScreen().frame(maxWidth: .infinity).padding(.top, 40)
         }
-        .padding(32)
+        .padding(.horizontal, 48)
+        .padding(.top, 40)
+        .padding(.bottom, 36)
+    }
+}
+
+private struct SetupInstructions: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Eyebrow(text: "Step 03 / 05")
+            Text("Set up the desktop").font(T.sans(34, .semibold)).tracking(-1).padding(.top, 14)
+            Text("A few clicks inside the VM that macOS only lets a person make. Once, and every desktop starts from the result.")
+                .font(T.sans(14)).foregroundStyle(T.muted).lineSpacing(3).padding(.top, 10)
+                .fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 22) {
+                Instruction(n: 1, title: "Finish Setup Assistant",
+                            detail: "Create a local account. Skip Apple Account, Location Services and Siri.")
+                Instruction(n: 2, title: "Run the installer",
+                            detail: "Open Terminal in the VM (⌘ Space, Terminal) and type:") {
+                    Terminal(text: SetupStep.command).padding(.top, 4)
+                }
+                Instruction(n: 3, title: "Allow two permissions",
+                            detail: "Turn on Desktop Plane Agent under Accessibility and Screen Recording when System Settings opens.")
+                Instruction(n: 4, title: "Shut down",
+                            detail: "When the installer says Done, choose Shut Down from the Apple menu. The rest is automatic.")
+            }
+            .padding(.top, 32)
+            Spacer(minLength: 16)
+            ErrorLine()
+        }
+    }
+}
+
+private struct SetupScreen: View {
+    @EnvironmentObject var model: AppModel
+
+    var body: some View {
+        let b = model.builder
+        VStack(alignment: .leading, spacing: 14) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 10).fill(Color(white: 0.02))
+                if let vm = b.provisioningVM {
+                    VMDisplay(vm: vm, interactive: true).clipShape(RoundedRectangle(cornerRadius: 10))
+                } else {
+                    VStack(spacing: 12) {
+                        Mark(size: 30).opacity(0.4)
+                        Text("The VM appears here").font(T.sans(13)).foregroundStyle(T.faint)
+                    }
+                }
+            }
+            .aspectRatio(16.0 / 10.0, contentMode: .fit)
+            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(T.border))
+            HStack(spacing: 10) {
+                if b.provisioningVM != nil {
+                    Dot(color: T.green, pulse: true)
+                    Text("Running · click inside to type").font(T.sans(12.5)).foregroundStyle(T.muted)
+                    Spacer()
+                    Button("Open in window") { model.popOutProvisioning() }.buttonStyle(SecondaryButton())
+                } else {
+                    if b.busy { Text(b.status).font(T.sans(12.5)).foregroundStyle(T.muted) }
+                    Spacer()
+                    Button("Start the VM") { model.provision() }
+                        .buttonStyle(PrimaryButton(large: true)).disabled(b.busy)
+                        .keyboardShortcut(.defaultAction)
+                }
+            }
+        }
     }
 }
 
@@ -325,15 +361,11 @@ private struct Instruction<Extra: View>: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Text("\(n)")
-                .font(.system(size: 12, weight: .semibold))
-                .frame(width: 22, height: 22)
-                .background(Color.accentColor.opacity(0.15), in: Circle())
-                .foregroundStyle(Color.accentColor)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title).fontWeight(.medium)
-                Text(detail).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        HStack(alignment: .top, spacing: 14) {
+            Text(String(format: "%02d", n)).font(T.mono(12)).foregroundStyle(T.faint).padding(.top, 1)
+            VStack(alignment: .leading, spacing: 5) {
+                Text(title).font(T.sans(14, .medium))
+                Text(detail).font(T.sans(13)).foregroundStyle(T.muted).lineSpacing(2).fixedSize(horizontal: false, vertical: true)
                 extra
             }
         }
@@ -348,24 +380,21 @@ private struct SnapshotStep: View {
     var body: some View {
         let b = model.builder
         let ready = model.imageStage == .ready && !b.busy
-        StepPage(title: "Save the snapshot",
-                 subtitle: "Desktop Plane boots the image locked down, checks that the agent and its permissions work, and saves the running machine. Desktops start from this snapshot in seconds.") {
-            VStack(alignment: .leading, spacing: 12) {
-                if b.busy {
-                    ProgressRow(status: b.status, progress: b.progress)
-                } else if ready {
-                    Label(b.status.isEmpty ? "Snapshot saved." : b.status, systemImage: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
-                }
+        StepPage(step: .snapshot, title: "Save the snapshot",
+                 subtitle: "Boots the image locked down, checks the agent and its permissions, and saves the running machine. Desktops start from it in seconds.") {
+            if b.busy {
+                ProgressRow(status: b.status, progress: b.progress)
+            } else if ready {
+                Done(text: b.status.isEmpty ? "Snapshot saved" : b.status)
             }
         } actions: {
             if ready {
                 Button("Continue") { model.onboardingStep = .connect }
-                    .buttonStyle(.borderedProminent).controlSize(.large).keyboardShortcut(.defaultAction)
+                    .buttonStyle(PrimaryButton(large: true)).keyboardShortcut(.defaultAction)
             } else {
-                Button("Back") { model.onboardingStep = .setup }.disabled(b.busy)
-                Button(model.lastError == nil ? "Save Snapshot" : "Try Again") { model.run { try await b.finalize() } }
-                    .buttonStyle(.borderedProminent).controlSize(.large).disabled(b.busy)
+                Button("Back") { model.onboardingStep = .setup }.buttonStyle(SecondaryButton(large: true)).disabled(b.busy)
+                Button(model.lastError == nil ? "Save snapshot" : "Try again") { model.run { try await b.finalize() } }
+                    .buttonStyle(PrimaryButton(large: true)).disabled(b.busy)
                     .keyboardShortcut(.defaultAction)
             }
         }
@@ -382,12 +411,18 @@ private struct ConnectStep: View {
     @EnvironmentObject var model: AppModel
 
     var body: some View {
-        StepPage(title: "Connect your agent",
-                 subtitle: "Add Desktop Plane to your coding agent once. It can then start desktops, open apps, see the screen, click and type, and end the desktop when it is done.") {
-            AgentsList()
+        StepPage(step: .connect, title: "Connect your agent",
+                 subtitle: "Add Desktop Plane once. Your agent can then start desktops, open apps, see the screen, click and type, and end the desktop when it's done.") {
+            VStack(alignment: .leading, spacing: 28) {
+                AgentsList()
+                VStack(alignment: .leading, spacing: 10) {
+                    Eyebrow(text: "Then try")
+                    Terminal(text: "Start a desktop with Safari, open apple.com and tell me the headline.", prompt: "›")
+                }
+            }
         } actions: {
-            Button("Done") { model.finishOnboarding() }
-                .buttonStyle(.borderedProminent).controlSize(.large).keyboardShortcut(.defaultAction)
+            Button("Open dashboard") { model.finishOnboarding() }
+                .buttonStyle(PrimaryButton(large: true)).keyboardShortcut(.defaultAction)
         }
     }
 }
@@ -398,49 +433,16 @@ struct AgentsList: View {
     @EnvironmentObject var model: AppModel
     @State private var installed: [AgentSetup.Agent: Bool] = [:]
     @State private var state: [AgentSetup.Agent: String] = [:]
-    @State private var showManual = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            ForEach(AgentSetup.Agent.allCases, id: \.self) { agent in
-                HStack(spacing: 14) {
-                    Image(systemName: agent == .claude ? "sparkle" : "chevron.left.forwardslash.chevron.right")
-                        .font(.system(size: 16, weight: .medium))
-                        .frame(width: 36, height: 36)
-                        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 8))
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(agent.title).fontWeight(.medium)
-                        Text(subtitle(agent)).font(.callout).foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Group {
-                        if state[agent] == "adding" {
-                            ProgressView().controlSize(.small)
-                        } else if state[agent] == "added" {
-                            Label("Added", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
-                        } else {
-                            Button("Add") { add(agent) }
-                                .buttonStyle(.borderedProminent)
-                                .disabled(installed[agent] != true || model.service == nil)
-                        }
-                    }
-                    .frame(width: 90, alignment: .trailing)
+        Panel(padding: 0) {
+            VStack(spacing: 0) {
+                ForEach(AgentSetup.Agent.allCases, id: \.self) { agent in
+                    row(agent)
+                    if agent != AgentSetup.Agent.allCases.last { Rectangle().fill(T.border).frame(height: 1) }
                 }
-            }
-            if let s = model.service {
-                Text("Then ask it, for example: “Start a desktop with Safari, open apple.com and tell me the headline.”")
-                    .font(.callout).foregroundStyle(.secondary).padding(.top, 4)
-                DisclosureGroup("Other MCP clients", isExpanded: $showManual) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        CopyField(label: "URL", value: s.settings.mcpURL)
-                        CopyField(label: "Header", value: "Authorization: Bearer \(s.settings.adminToken)", secret: true)
-                    }
-                    .padding(.top, 8)
-                }
-                .font(.callout)
             }
         }
-        .frame(maxWidth: 560, alignment: .leading)
         .task {
             for a in AgentSetup.Agent.allCases {
                 installed[a] = await AgentSetup.isInstalled(a)
@@ -449,12 +451,41 @@ struct AgentsList: View {
         }
     }
 
+    private func row(_ agent: AgentSetup.Agent) -> some View {
+        HStack(spacing: 14) {
+            Text(agent == .claude ? "✳" : "›_")
+                .font(T.mono(14, .medium))
+                .frame(width: 34, height: 34)
+                .background(RoundedRectangle(cornerRadius: 8).fill(T.raised))
+                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(T.border))
+            VStack(alignment: .leading, spacing: 3) {
+                Text(agent.title).font(T.sans(14, .medium))
+                Text(subtitle(agent)).font(T.sans(12.5)).foregroundStyle(T.muted).lineLimit(2)
+            }
+            Spacer()
+            Group {
+                if state[agent] == "adding" {
+                    ProgressView().controlSize(.small)
+                } else if state[agent] == "added" {
+                    HStack(spacing: 7) { Dot(color: T.green); Text("Connected").font(T.sans(13, .medium)) }
+                } else {
+                    Button("Add") { add(agent) }
+                        .buttonStyle(PrimaryButton())
+                        .disabled(installed[agent] != true || model.service == nil)
+                }
+            }
+            .frame(width: 110, alignment: .trailing)
+        }
+        .padding(.horizontal, 18)
+        .frame(height: 68)
+    }
+
     private func subtitle(_ a: AgentSetup.Agent) -> String {
         if let s = state[a], s.hasPrefix("error:") { return String(s.dropFirst(6)) }
         switch installed[a] {
         case nil: return "Looking for \(a.rawValue)…"
         case false?: return "\(a.rawValue) isn't installed on this Mac"
-        case true?: return state[a] == "added" ? "Connected. New \(a.rawValue) sessions have the desktop tools." : "Adds the desktop-plane MCP server to your user config."
+        case true?: return state[a] == "added" ? "New \(a.rawValue) sessions have the desktop tools" : "Adds the desktop-plane MCP server"
         }
     }
 
@@ -467,39 +498,7 @@ struct AgentsList: View {
     }
 }
 
-struct CopyField: View {
-    @EnvironmentObject var model: AppModel
-    let label: String
-    let value: String
-    var secret = false
-    @State private var copied = false
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Text(label).foregroundStyle(.secondary).frame(width: 52, alignment: .leading)
-            Text(secret ? String(value.prefix(30)) + "…" : value)
-                .font(.system(.callout, design: .monospaced)).lineLimit(1).truncationMode(.middle)
-            Spacer(minLength: 0)
-            Button(copied ? "Copied" : "Copy") { model.copy(value); copied = true }.controlSize(.small)
-        }
-        .padding(8)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 6))
-    }
-}
-
 // MARK: shared pieces
-
-/// The app's mark: a window over a window, on an accent squircle.
-struct AppGlyph: View {
-    let size: CGFloat
-    var body: some View {
-        RoundedRectangle(cornerRadius: size * 0.24, style: .continuous)
-            .fill(LinearGradient(colors: [Color(red: 0.25, green: 0.45, blue: 1), Color(red: 0.42, green: 0.25, blue: 0.95)],
-                                 startPoint: .topLeading, endPoint: .bottomTrailing))
-            .frame(width: size, height: size)
-            .overlay(Image(systemName: "macwindow.on.rectangle").font(.system(size: size * 0.5, weight: .medium)).foregroundStyle(.white))
-    }
-}
 
 /// A live view of a VM's screen. Watch-only unless `interactive`.
 struct VMDisplay: NSViewRepresentable {

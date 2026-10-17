@@ -61,18 +61,18 @@ struct SettingsSection: View {
                 }
             }
 
-            ForEach(draft.warnings(), id: \.self) { Text("⚠︎ \($0)").font(.callout).foregroundStyle(.orange) }
-            ForEach(draft.errors(), id: \.self) { Text($0).font(.callout).foregroundStyle(.red) }
-            if let error { Text(error).font(.callout).foregroundStyle(.red) }
+            ForEach(draft.warnings(), id: \.self) { Text("⚠︎ \($0)").font(T.sans(12.5)).foregroundStyle(T.amber) }
+            ForEach(draft.errors(), id: \.self) { Text($0).font(T.sans(12.5)).foregroundStyle(T.red) }
+            if let error { Text(error).font(T.sans(12.5)).foregroundStyle(T.red) }
             if draft.needsResnapshot(VMImage.load(named: draft.image)) {
                 Text("CPU and memory apply to new desktops after you redo the snapshot below.")
-                    .font(.callout).foregroundStyle(.secondary)
+                    .font(T.sans(12.5)).foregroundStyle(T.muted)
             }
 
             HStack {
                 Spacer()
-                Button("Revert") { draft = saved; error = nil }.disabled(!changed)
-                Button("Save") { save() }
+                Button("Revert") { draft = saved; error = nil }.buttonStyle(SecondaryButton()).disabled(!changed)
+                Button("Save") { save() }.buttonStyle(PrimaryButton())
                     .keyboardShortcut(.defaultAction)
                     .disabled(!changed || !draft.errors().isEmpty)
             }
