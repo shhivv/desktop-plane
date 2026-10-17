@@ -312,6 +312,13 @@ private struct SetupScreen: View {
                     Text("Running. Click inside to type.").font(T.sans(12.5)).foregroundStyle(T.muted)
                     Spacer()
                     Button("Open in window") { model.popOutProvisioning() }.buttonStyle(SecondaryButton())
+                } else if model.imageStage == .provisioned || model.imageStage == .ready, !b.busy {
+                    Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)).foregroundStyle(T.green)
+                    Text("Already set up").font(T.sans(13)).foregroundStyle(T.muted)
+                    Spacer()
+                    Button("Set up again") { model.provision() }.buttonStyle(SecondaryButton(large: true))
+                    Button("Continue") { model.onboardingStep = .snapshot }
+                        .buttonStyle(PrimaryButton(large: true)).keyboardShortcut(.defaultAction)
                 } else {
                     if b.busy { Text(b.status).font(T.sans(12.5)).foregroundStyle(T.muted) }
                     Spacer()
