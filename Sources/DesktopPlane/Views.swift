@@ -174,6 +174,12 @@ private struct PaneHeader<Trailing: View>: View {
     let title: String
     var subtitle: String = ""
     @ViewBuilder var trailing: Trailing
+
+    init(title: String, subtitle: String = "", @ViewBuilder trailing: () -> Trailing = { EmptyView() }) {
+        self.title = title
+        self.subtitle = subtitle
+        self.trailing = trailing()
+    }
     var body: some View {
         HStack(alignment: .lastTextBaseline) {
             VStack(alignment: .leading, spacing: 4) {
@@ -208,7 +214,7 @@ private struct DesktopsPane: View {
             VStack(spacing: 0) {
                 MacMini(width: 150, on: false).padding(.bottom, 26)
                 Text("No desktops running").font(T.sans(15, .medium))
-                Text("Your agents start one when they need a screen.")
+                Text("Desktops start when an agent asks for one.")
                     .font(T.sans(13.5)).foregroundStyle(T.muted).padding(.top, 4)
             }
             .frame(maxWidth: .infinity)
@@ -265,7 +271,7 @@ private struct DesktopCard: View {
     private var statusLine: String {
         switch session.state {
         case .starting: "Starting"
-        case .ready: session.agentAttached ? "In use by an agent" : "Ready"
+        case .ready: session.agentAttached ? "Agent connected" : "Ready"
         case .stopping: "Ending"
         case .stopped, .failed: "Ended"
         }
@@ -292,13 +298,13 @@ private struct AgentsPane: View {
     @EnvironmentObject var model: AppModel
 
     var body: some View {
-        PaneHeader(title: "Agents", subtitle: "Agents run on your computer and use this Mac's desktops") { EmptyView() }
+        PaneHeader(title: "Agents", subtitle: "Connected in the last 10 minutes") { EmptyView() }
         Panel(padding: 0) {
             TimelineView(.periodic(from: .now, by: 5)) { _ in
                 let agents = model.manager?.connectedAgents ?? []
                 VStack(spacing: 0) {
                     if agents.isEmpty {
-                        Text("No agents have connected in the last 10 minutes.")
+                        Text("No agents connected.")
                             .font(T.sans(13)).foregroundStyle(T.muted)
                             .frame(maxWidth: .infinity, alignment: .leading).padding(16)
                     }
@@ -318,11 +324,11 @@ private struct AgentsPane: View {
                 }
             }
         }
-        Block(title: "Connect another computer",
+        Block(title: "Add a computer",
               detail: "Run this on the computer where you use Claude Code or Codex.") {
             ConnectInstructions()
         }
-        Block(title: "Agents on this Mac", detail: "If you also run an agent here, add it in one click.") {
+        Block(title: "Agents on this Mac", detail: "For Claude Code or Codex installed on this Mac.") {
             LocalAgents()
         }
     }
@@ -399,12 +405,12 @@ private struct VolumesPane: View {
     @State private var sizeGB = 10
 
     var body: some View {
-        PaneHeader(title: "Volumes", subtitle: "Disks that outlive desktops. A desktop that asks for one sees it at \(Volume.guestMountPoint).") { EmptyView() }
+        PaneHeader(title: "Volumes", subtitle: "Storage that keeps its files after a desktop ends. It appears at \(Volume.guestMountPoint) in the desktop.") { EmptyView() }
         if let m = model.manager {
             Panel(padding: 0) {
                 VStack(spacing: 0) {
                     if m.volumes.isEmpty {
-                        Text("No volumes yet. Use one to keep a browser profile, logins or files from one desktop to the next.")
+                        Text("No volumes. Create one to keep files, browser profiles or logins between desktops.")
                             .font(T.sans(13)).foregroundStyle(T.muted)
                             .frame(maxWidth: .infinity, alignment: .leading).padding(16)
                     }
@@ -453,10 +459,10 @@ private struct VolumesPane: View {
 private struct ActivityPane: View {
     @EnvironmentObject var model: AppModel
     var body: some View {
-        PaneHeader(title: "Activity", subtitle: "Desktops starting and ending, network connections, and errors") { EmptyView() }
+        PaneHeader(title: "Activity") { EmptyView() }
         Panel(padding: 14) {
             VStack(alignment: .leading, spacing: 3) {
-                if model.log.isEmpty { Text("Nothing yet.").font(T.sans(13)).foregroundStyle(T.faint) }
+                if model.log.isEmpty { Text("No activity yet.").font(T.sans(13)).foregroundStyle(T.faint) }
                 ForEach(Array(model.log.suffix(200).enumerated()), id: \.offset) { _, line in
                     Text(line).foregroundStyle(color(line)).frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -479,17 +485,17 @@ private struct ActivityPane: View {
 private struct SettingsPane: View {
     @EnvironmentObject var model: AppModel
     var body: some View {
-        PaneHeader(title: "Settings", subtitle: "This Mac has \(HostSettings.hostCPUs) cores and \(HostSettings.hostMemoryGB) GB of memory") { EmptyView() }
-        Block(title: "Network", detail: "How agents on your computer reach this Mac.") { ReachOptions() }
-        Block(title: "Desktops", detail: "Size and limits for each desktop.") { SettingsSection() }
-        Block(title: "This Mac", detail: model.imageSummary) {
+        PaneHeader(title: "Settings") { EmptyView() }
+        Block(title: "Network access", detail: "How your computer connects to this Mac.") { ReachOptions() }
+        Block(title: "Desktops", detail: "This Mac has \(HostSettings.hostCPUs) cores and \(HostSettings.hostMemoryGB) GB of memory.") { SettingsSection() }
+        Block(title: "macOS image", detail: model.imageSummary) {
             HStack(spacing: 8) {
                 Toggle("Open at login", isOn: Binding(get: { model.launchAtLogin }, set: { model.launchAtLogin = $0 }))
                     .toggleStyle(.switch).controlSize(.small).font(T.sans(13))
                 Spacer()
-                Button("Redo snapshot") { model.run { try await model.builder.finalize() } }
+                Button("Save new snapshot") { model.run { try await model.builder.finalize() } }
                     .buttonStyle(SecondaryButton()).disabled(model.builder.busy)
-                Button("Set up again") { model.restartOnboarding() }
+                Button("Run setup again") { model.restartOnboarding() }
                     .buttonStyle(SecondaryButton()).disabled(model.builder.busy)
             }
             if model.builder.busy { ProgressRow(status: model.builder.status, progress: model.builder.progress) }

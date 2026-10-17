@@ -120,8 +120,8 @@ private struct WelcomeStep: View {
 
     var body: some View {
         let checks = HostCheck.all()
-        StepPage(title: "Desktops for your agents",
-                 subtitle: "Your agents keep running on your own computer. When they need a screen, they use a macOS desktop on this Mac: a fresh VM for each task, sealed off from this Mac and your network, and deleted afterwards.") {
+        StepPage(title: "Set up this Mac for computer use",
+                 subtitle: "Agents on your computer, like Claude Code and Codex, can use this Mac to control macOS apps. Each task gets its own macOS virtual machine, which is deleted when the task ends.") {
             MacMini(width: 210, on: lit)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 18)
@@ -199,7 +199,7 @@ private struct InstallStep: View {
         let b = model.builder
         let done = model.imageStage != nil && !b.busy
         StepPage(title: "Install macOS",
-                 subtitle: "Downloads the latest macOS this Mac supports, about 17 GB, and installs it into the image every desktop starts from. It runs in the background.") {
+                 subtitle: "Downloads macOS (about 17 GB) and installs it in a virtual machine.") {
             if b.busy {
                 ProgressRow(status: b.status, progress: b.progress)
             } else if done {
@@ -267,21 +267,21 @@ private struct SetupStep: View {
 private struct SetupInstructions: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Set up the desktop").font(T.display(34)).padding(.top, 4)
-            Text("A few things in the VM that macOS only lets a person do. You do them once; every desktop starts from the result.")
+            Text("Set up macOS").font(T.display(34)).padding(.top, 4)
+            Text("Finish setting up the virtual machine. You only do this once.")
                 .font(T.sans(14)).foregroundStyle(T.muted).lineSpacing(3).padding(.top, 10)
                 .fixedSize(horizontal: false, vertical: true)
             VStack(alignment: .leading, spacing: 20) {
                 Instruction(n: 1, title: "Finish Setup Assistant",
-                            detail: "Create a local account. Skip Apple Account, Location Services and Siri.")
+                            detail: "Create a local account. You can skip Apple Account, Location Services and Siri.")
                 Instruction(n: 2, title: "Run the installer",
-                            detail: "Open Terminal in the VM and type:") {
+                            detail: "Open Terminal in the virtual machine and run:") {
                     Terminal(text: SetupStep.command, fit: true).padding(.top, 4)
                 }
-                Instruction(n: 3, title: "Allow two permissions",
-                            detail: "When System Settings opens, turn on Desktop Plane Agent under Accessibility, then under Screen Recording.")
+                Instruction(n: 3, title: "Give the agent permissions",
+                            detail: "In System Settings, turn on Desktop Plane Agent under Accessibility and under Screen Recording.")
                 Instruction(n: 4, title: "Shut down",
-                            detail: "When the installer says Done, choose Shut Down from the Apple menu. The app takes it from there.")
+                            detail: "When the installer finishes, choose Shut Down from the Apple menu.")
             }
             .padding(.top, 28)
             Spacer(minLength: 16)
@@ -301,7 +301,7 @@ private struct SetupScreen: View {
                 if let vm = b.provisioningVM {
                     VMDisplay(vm: vm, interactive: true).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 } else {
-                    Text("The VM shows here once it starts.").font(T.sans(13)).foregroundStyle(T.faint)
+                    Text("The virtual machine appears here.").font(T.sans(13)).foregroundStyle(T.faint)
                 }
             }
             .aspectRatio(16.0 / 10.0, contentMode: .fit)
@@ -309,13 +309,13 @@ private struct SetupScreen: View {
             HStack(spacing: 10) {
                 if b.provisioningVM != nil {
                     LED(pulse: true)
-                    Text("Running. Click inside the VM to type in it.").font(T.sans(12.5)).foregroundStyle(T.muted)
+                    Text("Running. Click inside to type.").font(T.sans(12.5)).foregroundStyle(T.muted)
                     Spacer()
                     Button("Open in window") { model.popOutProvisioning() }.buttonStyle(SecondaryButton())
                 } else {
                     if b.busy { Text(b.status).font(T.sans(12.5)).foregroundStyle(T.muted) }
                     Spacer()
-                    Button("Start the VM") { model.provision() }
+                    Button("Start virtual machine") { model.provision() }
                         .buttonStyle(PrimaryButton(large: true)).disabled(b.busy)
                         .keyboardShortcut(.defaultAction)
                 }
@@ -357,8 +357,8 @@ private struct SnapshotStep: View {
     var body: some View {
         let b = model.builder
         let ready = model.imageStage == .ready && !b.busy
-        StepPage(title: "Save the snapshot",
-                 subtitle: "The app boots the image locked down, checks the agent and its permissions, and saves the running machine. Desktops start from it in seconds.") {
+        StepPage(title: "Save a snapshot",
+                 subtitle: "Saves the set-up virtual machine so new desktops start in seconds.") {
             if b.busy {
                 ProgressRow(status: b.status, progress: b.progress)
             } else if ready {
@@ -388,8 +388,8 @@ private struct ReachStep: View {
     @EnvironmentObject var model: AppModel
 
     var body: some View {
-        StepPage(title: "Reach this Mac from your computer",
-                 subtitle: "Your agents connect to this Mac over the network. Pick how your computer gets here.") {
+        StepPage(title: "Turn on network access",
+                 subtitle: "Choose how your computer connects to this Mac.") {
             ReachOptions()
         } actions: {
             Button("Back") { model.onboardingStep = .snapshot }.buttonStyle(SecondaryButton(large: true))
@@ -427,7 +427,7 @@ struct ReachOptions: View {
                 }
             }
             Option(selected: mode == .lan, title: "Same network",
-                   detail: "Computers on this Wi-Fi or Ethernet reach it at \(Reachability.localHostName()). Traffic, including the access token, is not encrypted.") {
+                   detail: "Your computer must be on the same network. Traffic, including the access token, is not encrypted.") {
                 if mode == .lan {
                     Text(model.service?.settings.publicURL ?? "").font(T.mono(11.5)).foregroundStyle(T.muted)
                 } else {
@@ -437,7 +437,7 @@ struct ReachOptions: View {
             if mode != .local {
                 HStack {
                     Spacer()
-                    Button("Only this Mac") { use(.local) }.buttonStyle(LinkButton())
+                    Button("Turn off network access") { use(.local) }.buttonStyle(LinkButton())
                 }
             }
         }
@@ -445,9 +445,9 @@ struct ReachOptions: View {
     }
 
     private var tailscaleDetail: String {
-        if !Reachability.tailscaleInstalled { return "Encrypted, and works from anywhere. Install Tailscale on this Mac and on your computer, signed in to the same account." }
-        if checked && tailnet == nil { return "Tailscale is installed but not connected. Open it and sign in." }
-        return "Encrypted, and works from anywhere your computer has Tailscale. Nothing is opened on your local network."
+        if !Reachability.tailscaleInstalled { return "Works from any network and encrypts traffic. Install Tailscale on this Mac and your computer, and sign in to the same account on both." }
+        if checked && tailnet == nil { return "Tailscale is installed but not signed in." }
+        return "Works from any network and encrypts traffic. Needs Tailscale on your computer too."
     }
 
     private func refresh() async {
@@ -508,11 +508,11 @@ private struct ConnectStep: View {
     @EnvironmentObject var model: AppModel
 
     var body: some View {
-        StepPage(title: "Connect your agents",
-                 subtitle: "On the computer where you use Claude Code or Codex, run this once. Your agents can then start a desktop here whenever they need a screen.") {
+        StepPage(title: "Add Desktop Plane to your agent",
+                 subtitle: "Run this on the computer where you use Claude Code or Codex.") {
             ConnectInstructions()
         } actions: {
-            Button("Open dashboard") { model.finishOnboarding() }
+            Button("Done") { model.finishOnboarding() }
                 .buttonStyle(PrimaryButton(large: true)).keyboardShortcut(.defaultAction)
         }
     }
@@ -528,7 +528,7 @@ struct ConnectInstructions: View {
         if let s = model.service?.settings, model.reachMode == .local {
             HStack(spacing: 10) {
                 Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(T.amber).font(.system(size: 11))
-                Text("This Mac is only reachable from itself. Choose Tailscale or your local network first, then come back here.")
+                Text("Network access is off, so other computers can't connect. Turn it on in the previous step.")
                     .font(T.sans(13)).foregroundStyle(T.muted)
             }
         } else if let s = model.service?.settings {
@@ -543,7 +543,7 @@ struct ConnectInstructions: View {
                               display: "claude mcp add --scope user --transport http desktop-plane \\\n  \(s.mcpURL) \\\n  --header \"Authorization: Bearer ••••••••\"")
                 case .codex:
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Add this to ~/.codex/config.toml:").font(T.sans(13)).foregroundStyle(T.muted)
+                        Text("Add this to ~/.codex/config.toml on your computer:").font(T.sans(13)).foregroundStyle(T.muted)
                         CodeBlock(text: AgentSetup.codexConfig(s),
                                   display: "[mcp_servers.desktop-plane]\nurl = \"\(s.mcpURL)\"\nhttp_headers = { Authorization = \"Bearer ••••••••\" }")
                     }
@@ -568,7 +568,7 @@ struct ConnectionLine: View {
                         .font(T.sans(13, .medium))
                 } else {
                     LED(on: true, color: T.faint, pulse: true)
-                    Text("Waiting for an agent to connect").font(T.sans(13)).foregroundStyle(T.muted)
+                    Text("Waiting for a connection").font(T.sans(13)).foregroundStyle(T.muted)
                 }
             }
             .padding(.top, 4)

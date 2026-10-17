@@ -183,7 +183,7 @@ final class AppModel: ObservableObject {
     var imageSummary: String {
         guard let img = VMImage.load(named: builder.name) else { return "Not built" }
         let m = img.meta
-        return "Desktops run macOS \(m.macOSBuild) with \(m.cpus ?? 0) CPUs and \(m.memoryGB ?? 0) GB of memory."
+        return "macOS \(m.macOSBuild), \(m.cpus ?? 0) CPUs and \(m.memoryGB ?? 0) GB of memory per desktop."
     }
 
     /// Starts a desktop from the app, for a person to look at or hand to an agent.

@@ -24,23 +24,23 @@ struct SettingsSection: View {
                     Text("Disk size")
                     HStack {
                         Stepper("\(draft.diskGB) GB", value: $draft.diskGB, in: HostSettings.diskRange, step: 10)
-                        Text("used when the image is installed").font(T.sans(12)).foregroundStyle(T.muted)
+                        Text("Applies when macOS is reinstalled").font(T.sans(12)).foregroundStyle(T.muted)
                     }
                 }
                 GridRow {
-                    Text("Running at once")
+                    Text("Desktops at once")
                     Picker("", selection: $draft.maxVMs) {
                         Text("1").tag(1)
-                        Text("2 (macOS maximum)").tag(2)
+                        Text("2 (the macOS limit)").tag(2)
                     }
                     .labelsHidden().pickerStyle(.segmented).frame(width: 220)
                 }
                 GridRow {
-                    Text("Session lifetime")
+                    Text("Maximum lifetime")
                     Stepper("\(draft.defaultTTLSeconds / 60) min", value: minutes(\.defaultTTLSeconds), in: 1...1440, step: 15)
                 }
                 GridRow {
-                    Text("Idle timeout")
+                    Text("End when idle for")
                     Stepper("\(draft.defaultIdleTimeoutSeconds / 60) min", value: minutes(\.defaultIdleTimeoutSeconds), in: 1...1440, step: 5)
                 }
             }
@@ -49,7 +49,7 @@ struct SettingsSection: View {
             ForEach(draft.errors(), id: \.self) { Text($0).font(T.sans(12.5)).foregroundStyle(T.red) }
             if let error { Text(error).font(T.sans(12.5)).foregroundStyle(T.red) }
             if draft.needsResnapshot(VMImage.load(named: draft.image)) {
-                Text("CPU and memory apply to new desktops after you redo the snapshot below.")
+                Text("New CPU and memory settings apply after you save a new snapshot.")
                     .font(T.sans(12.5)).foregroundStyle(T.muted)
             }
 
