@@ -12,6 +12,9 @@ import Foundation
 /// volume raises a privacy prompt in the guest that blocks the process until someone clicks,
 /// and no one is there to click.
 ///
+/// And it records the agent's Screen Recording approval far ahead, so macOS's periodic "re-approve
+/// screen recording" dialog never covers a desktop no person is watching.
+///
 /// The disk changes, so the image goes back to `provisioned` and needs a new snapshot.
 public enum AgentUpdater {
     static let bundleID = "dev.desktopplane.agent"
@@ -97,6 +100,20 @@ public enum AgentUpdater {
                 try run("/usr/bin/defaults", ["write", prefs.path, key, "-bool", "false"])
             }
             notes.append("text substitutions off for \(home.lastPathComponent)")
+        }
+        // macOS periodically asks the person to re-approve Screen Recording ("…is requesting to
+        // bypass the system private window picker"). In a desktop no person is there, and the
+        // dialog sits over the windows an agent works in. Record the agent's approval far in the
+        // future, which is where macOS keeps it once someone clicks Allow.
+        for home in users {
+            let dir = home.appendingPathComponent("Library/Group Containers/group.com.apple.replayd")
+            try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+            let approvals = dir.appendingPathComponent("ScreenCaptureApprovals")
+            for path in ["/Applications/\(GuestTools.agentBundleName)/\(exe)", "/Applications/\(GuestTools.agentBundleName)",
+                         GuestTools.guestCorePath] {
+                try run("/usr/bin/defaults", ["write", approvals.path, path, "-date", "4000-01-01 00:00:00 +0000"])
+            }
+            notes.append("screen recording reminder off for \(home.lastPathComponent)")
         }
         for home in users {
             let plistURL = home.appendingPathComponent("Library/LaunchAgents/\(bundleID).plist")
