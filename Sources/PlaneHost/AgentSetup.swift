@@ -23,8 +23,7 @@ public enum AgentSetup {
             return "claude mcp add --scope user --transport http \(serverName) \(s.mcpURL) "
                 + "--header \"Authorization: Bearer \(s.adminToken)\""
         case .codex:
-            return "codex mcp add \(serverName) --url \(s.mcpURL) --bearer-token-env-var \(codexTokenVar)\n"
-                + "export \(codexTokenVar)=\(s.adminToken)   # add this line to ~/.zshrc"
+            return "# add to ~/.codex/config.toml\n" + codexConfig(s)
         }
     }
 

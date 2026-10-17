@@ -28,8 +28,10 @@ claude "Start a desktop with Safari, open apple.com and tell me the headline."
 ## Requirements
 
 - Apple Silicon Mac, macOS 14 or later (built and tested on macOS 26)
-- ~100 GB free disk, 16 GB+ RAM (each VM defaults to 4 vCPU / 8 GB)
-- Xcode 16+ command line tools to build
+- About 60 GB free disk (the macOS download and the image)
+- 16 GB of memory or more for two desktops at once; 8 GB runs one. Desktop size is set from
+  this Mac's memory on first launch.
+- Xcode 16+ command line tools, only to build from source
 
 ## Set up
 
@@ -43,9 +45,10 @@ open "dist/Desktop Plane.app"
 
 The first run walks you through building the golden image once and connecting your agent:
 
-1. **Install macOS.** Downloads the latest supported restore image and installs it (~15 min).
+1. **Install macOS.** Downloads the latest supported restore image (about 17 GB) and installs it.
+   Allow 20–40 minutes, mostly the download.
 2. **Set up.** The VM appears in the window. Finish Setup Assistant with a local account (skip the
-   Apple ID). Then open Terminal and run:
+   Apple ID). Then open Terminal in the VM and type (there is no shared clipboard):
    ```bash
    bash "/Volumes/My Shared Files/install.sh"
    ```
@@ -63,6 +66,18 @@ The first run walks you through building the golden image once and connecting yo
    its own identity makes macOS treat it as a new Mac and show Setup Assistant. So the first
    running desktop restores the snapshot, and one started while it runs cold boots from the
    clean copy.
+4. **Network access.** Choose how your computer reaches this Mac: Tailscale (recommended;
+   encrypted, works anywhere) or the same local network (plain HTTP).
+5. **Connect.** The app shows the MCP URL and header to add to your agent on your computer.
+
+Turn on **Open at login** in Settings so the Mac keeps serving desktops after a restart, and
+turn on automatic login for its user account.
+
+`planed`, the command-line host used below, ships inside the app. To use it from a terminal:
+
+```bash
+sudo ln -s "/Applications/Desktop Plane.app/Contents/MacOS/planed" /usr/local/bin/planed
+```
 
 Headless alternative (same engine): `planed image install`, `planed image provision`,
 `planed image finalize`, then `planed serve`. `scripts/dev.sh <args>` runs a debug build of
@@ -99,34 +114,36 @@ planed image update-agent && planed image finalize
 
 ### With an agent
 
-Desktop Plane is one MCP server at `/v1/mcp` that you add once. Your agent gets tools to start,
+Desktop Plane is one MCP server at `/v1/mcp` that you add once, in your agent's settings on the
+computer where it runs. Use the URL and `Authorization` header from the app's **Agents** tab
+(Streamable HTTP transport). Your agent gets tools to start,
 list, screenshot and end desktops (`desktop_create`, `desktop_list`, `desktop_screenshot`,
 `desktop_end`), `desktop_open` to launch apps or URLs, and the arc-cua driver's tools
 (`observe`, `act`, `type_text`, `click_at`, …). Driver tools take an optional `desktop` id and
-can leave it out while one desktop is running.
+can leave it out while they have one desktop.
 
 ```bash
-planed mcp                      # show the URL, token and the commands below
-planed mcp install claude       # claude mcp add --scope user --transport http desktop-plane …
-planed mcp install codex        # codex mcp add desktop-plane --url …, token in ~/.codex/config.toml
+planed mcp                      # the URL, the header, and commands for Claude Code and Codex
+planed mcp claude               # just the Claude Code command, to run on your computer
+planed mcp install claude       # add it to Claude Code on this Mac (also: codex)
 ```
 
-The app's **Agents** tab and the last onboarding step do the same with one click. Any other MCP
-client: Streamable HTTP at `http://127.0.0.1:7480/v1/mcp` with
-`Authorization: Bearer <planed token>`.
-
-The driver's tool list is learned from the first desktop the host runs. Until then, agents see
-the `desktop_*` tools plus `desktop_call`, which calls any driver tool by name.
+The driver's tool list is read from the image when its snapshot is saved, never from a running
+desktop. `desktop_call` calls any driver tool by name.
 
 ### From another machine
 
-Keep the API on loopback and put Tailscale in front of it:
+The app's **Network access** setting does this for you. By hand, keep the API on loopback and
+put Tailscale in front of it on the API's own port:
 
 ```bash
-tailscale serve --bg 7480                                   # prints https://<mac>.<tailnet>.ts.net
-planed config set public-url=https://<mac>.<tailnet>.ts.net
+tailscale serve --bg --https=7480 http://127.0.0.1:7480
+planed config set public-url=https://<mac>.<tailnet>.ts.net:7480
 planed mcp claude                                           # run the printed command on the other machine
 ```
+
+If your tailnet hasn't used Serve before, Tailscale asks you to turn it on in the admin console
+first; the app shows the link.
 
 ### Sessions by hand
 
@@ -139,7 +156,7 @@ planed session end ses_…
 ### HTTP API
 
 ```bash
-TOKEN=$(planed token)   # or "Copy Admin Token" in the menu
+TOKEN=$(planed token)
 curl -s -X POST localhost:7480/v1/sessions -H "Authorization: Bearer $TOKEN" \
   -d '{"ttl_seconds": 3600, "network": {"allow": ["github.com"], "ports": [443]}}'
 # -> {"id": "ses_…", "token": "dpt_…", "mcp_url": "http://127.0.0.1:7480/v1/sessions/ses_…/mcp", …}
