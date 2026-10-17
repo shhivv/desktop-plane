@@ -4,8 +4,11 @@ Turn a spare Apple Silicon Mac into an on-demand pool of throwaway macOS desktop
 computer-use agents. Each desktop is a fresh macOS VM (Apple Virtualization.framework) with
 the [arc-cua](https://github.com/shhivv/arc-cua) driver inside, reachable as an MCP server.
 
-```
-POST /v1/sessions  ->  { mcp_url, token }  ->  claude mcp add --transport http desk <mcp_url> ...
+Add it to your agent once, then ask for a desktop:
+
+```bash
+planed mcp install claude      # or: planed mcp install codex, or the Add button in the app
+claude "Start a desktop with Safari, open apple.com and tell me the headline."
 ```
 
 - **Fast:** a desktop restores from a saved snapshot of an APFS copy-on-write clone in about 6–9 seconds. A second desktop started while one is running cold boots in about 15–20 seconds (see below).
@@ -24,15 +27,18 @@ POST /v1/sessions  ->  { mcp_url, token }  ->  claude mcp add --transport http d
 
 ## Set up
 
+Download the DMG from [Releases](https://github.com/shhivv/desktop-plane/releases), drag
+Desktop Plane to Applications and open it. Or build it yourself:
+
 ```bash
-scripts/bundle.sh                     # builds and signs "dist/Desktop Plane.app"
-open "dist/Desktop Plane.app"         # menu bar icon -> Open Desktop Plane…
+scripts/bundle.sh                     # builds and signs "dist/Desktop Plane.app" (ad hoc)
+open "dist/Desktop Plane.app"
 ```
 
-In the window, build the golden image once:
+The first run walks you through building the golden image once and connecting your agent:
 
 1. **Install macOS.** Downloads the latest supported restore image and installs it (~15 min).
-2. **Provision.** A VM window opens. Finish Setup Assistant with a local account (skip the
+2. **Set up.** The VM appears in the window. Finish Setup Assistant with a local account (skip the
    Apple ID). Then open Terminal and run:
    ```bash
    bash "/Volumes/My Shared Files/install.sh"
@@ -85,6 +91,47 @@ planed image update-agent && planed image finalize
 
 ## Use
 
+### With an agent
+
+Desktop Plane is one MCP server at `/v1/mcp` that you add once. Your agent gets tools to start,
+list, screenshot and end desktops (`desktop_create`, `desktop_list`, `desktop_screenshot`,
+`desktop_end`), `desktop_open` to launch apps or URLs, and the arc-cua driver's tools
+(`observe`, `act`, `type_text`, `click_at`, …). Driver tools take an optional `desktop` id and
+can leave it out while one desktop is running.
+
+```bash
+planed mcp                      # show the URL, token and the commands below
+planed mcp install claude       # claude mcp add --scope user --transport http desktop-plane …
+planed mcp install codex        # codex mcp add desktop-plane --url …, token in ~/.codex/config.toml
+```
+
+The app's **Agents** tab and the last onboarding step do the same with one click. Any other MCP
+client: Streamable HTTP at `http://127.0.0.1:7480/v1/mcp` with
+`Authorization: Bearer <planed token>`.
+
+The driver's tool list is learned from the first desktop the host runs. Until then, agents see
+the `desktop_*` tools plus `desktop_call`, which calls any driver tool by name.
+
+### From another machine
+
+Keep the API on loopback and put Tailscale in front of it:
+
+```bash
+tailscale serve --bg 7480                                   # prints https://<mac>.<tailnet>.ts.net
+planed config set public-url=https://<mac>.<tailnet>.ts.net
+planed mcp claude                                           # run the printed command on the other machine
+```
+
+### Sessions by hand
+
+```bash
+planed session new --open Safari --open https://example.com --ttl 1800
+planed session list
+planed session end ses_…
+```
+
+### HTTP API
+
 ```bash
 TOKEN=$(planed token)   # or "Copy Admin Token" in the menu
 curl -s -X POST localhost:7480/v1/sessions -H "Authorization: Bearer $TOKEN" \
@@ -97,6 +144,7 @@ claude mcp add --transport http desk "$MCP_URL" --header "Authorization: Bearer 
 | Method | Path | Auth | |
 |---|---|---|---|
 | GET | `/v1/health` | none | image stage, free slots |
+| POST / DELETE | `/v1/mcp` | admin | the plane's MCP server (see above) |
 | POST | `/v1/sessions` | admin | `ttl_seconds`, `idle_timeout_seconds`, `network: {enabled, allow, deny, ports}`, `volume`, `open` |
 | GET | `/v1/sessions` | admin | list |
 | GET / DELETE | `/v1/sessions/:id` | admin or session | |

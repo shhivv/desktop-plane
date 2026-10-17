@@ -20,6 +20,7 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN/DesktopPlane" "$BIN/planed" "$APP/Contents/MacOS/"
 cp -R assets/fonts "$APP/Contents/Resources/Fonts"
+cp assets/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 
 AGENT="$APP/Contents/Resources/DesktopPlaneAgent.app"
 mkdir -p "$AGENT/Contents/MacOS"
@@ -48,6 +49,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleName</key><string>Desktop Plane</string>
   <key>CFBundleDisplayName</key><string>Desktop Plane</string>
   <key>CFBundleExecutable</key><string>DesktopPlane</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>$VERSION</string>
   <key>CFBundleVersion</key><string>1</string>
