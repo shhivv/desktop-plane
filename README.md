@@ -7,7 +7,7 @@ Desktop Plane for a desktop: a fresh macOS virtual machine on the spare Mac, rea
 The agent sees the screen, clicks and types through MCP, and the desktop is deleted when it's
 done.
 
-![Desktop Plane with one desktop running Safari](docs/app.jpg)
+![Desktop Plane with one desktop running Safari](docs/app.png)
 
 - **Any MCP agent.** Claude Code, Codex, or your own: anything that speaks MCP over HTTP.
 - **Fresh every time.** Each desktop is a copy-on-write clone of one golden image. Nothing
