@@ -133,7 +133,7 @@ final class AppModel: ObservableObject {
         case nil: onboardingStep = builder.busy ? .install : .welcome
         case .installed?: onboardingStep = builder.busy ? .install : .setup
         case .provisioned?: onboardingStep = .snapshot
-        case .ready?: onboardingStep = .connect
+        case .ready?: onboardingStep = reachMode == .local ? .reach : .connect
         }
     }
 
@@ -177,10 +177,13 @@ final class AppModel: ObservableObject {
         if vm == nil { windows.removeValue(forKey: "provision")?.window.close() }
     }
 
+    /// How agents on other computers reach this Mac.
+    var reachMode: Reachability.Mode { service.map { Reachability.mode($0.settings) } ?? .local }
+
     var imageSummary: String {
         guard let img = VMImage.load(named: builder.name) else { return "Not built" }
         let m = img.meta
-        return "macOS \(m.macOSBuild) · \(m.cpus ?? 0) CPUs · \(m.memoryGB ?? 0) GB · \(m.diskGB) GB disk · \(m.stage.rawValue)"
+        return "Desktops run macOS \(m.macOSBuild) with \(m.cpus ?? 0) CPUs and \(m.memoryGB ?? 0) GB of memory."
     }
 
     /// Starts a desktop from the app, for a person to look at or hand to an agent.

@@ -4,10 +4,15 @@ Turn a spare Apple Silicon Mac into an on-demand pool of throwaway macOS desktop
 computer-use agents. Each desktop is a fresh macOS VM (Apple Virtualization.framework) with
 the [arc-cua](https://github.com/shhivv/arc-cua) driver inside, reachable as an MCP server.
 
-Add it to your agent once, then ask for a desktop:
+Your agents keep running on your own computer. The spare Mac only serves desktops: when an
+agent needs a screen, it starts one there over MCP, drives it, and ends it. The app walks you
+through making the Mac reachable (Tailscale, or your local network) and gives you the one
+command to run on your computer:
 
 ```bash
-planed mcp install claude      # or: planed mcp install codex, or the Add button in the app
+# on your computer
+claude mcp add --scope user --transport http desktop-plane https://<mac>.<tailnet>.ts.net/v1/mcp \
+  --header "Authorization: Bearer <token>"
 claude "Start a desktop with Safari, open apple.com and tell me the headline."
 ```
 

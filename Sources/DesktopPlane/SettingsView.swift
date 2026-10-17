@@ -24,7 +24,7 @@ struct SettingsSection: View {
                     Text("Disk size")
                     HStack {
                         Stepper("\(draft.diskGB) GB", value: $draft.diskGB, in: HostSettings.diskRange, step: 10)
-                        Text("used when the image is installed").font(.caption).foregroundStyle(.secondary)
+                        Text("used when the image is installed").font(T.sans(12)).foregroundStyle(T.muted)
                     }
                 }
                 GridRow {
@@ -42,22 +42,6 @@ struct SettingsSection: View {
                 GridRow {
                     Text("Idle timeout")
                     Stepper("\(draft.defaultIdleTimeoutSeconds / 60) min", value: minutes(\.defaultIdleTimeoutSeconds), in: 1...1440, step: 5)
-                }
-                GridRow {
-                    Text("API")
-                    HStack {
-                        Picker("", selection: $draft.bindAddress) {
-                            Text("This Mac only").tag("127.0.0.1")
-                            Text("All networks").tag("0.0.0.0")
-                        }
-                        .labelsHidden().frame(width: 160)
-                        Text("port")
-                        TextField("", value: $draft.port, format: .number.grouping(.never)).frame(width: 70)
-                    }
-                }
-                GridRow {
-                    Text("Public URL")
-                    TextField("https://mini.tailnet.ts.net (optional)", text: $draft.publicURL).frame(width: 300)
                 }
             }
 

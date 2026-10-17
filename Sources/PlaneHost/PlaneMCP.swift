@@ -21,6 +21,20 @@ final class PlaneMCP {
         /// One initialized driver connection per desktop.
         var bridges: [String: MCPBridge] = [:]
         var lastSeen = Date()
+        /// From initialize's clientInfo, e.g. "claude-code".
+        var name = ""
+        var version = ""
+        var address = ""
+    }
+
+    /// Agents seen in the last ten minutes, most recent first.
+    var connected: [ConnectedAgent] {
+        let cutoff = Date().addingTimeInterval(-600)
+        return clients.filter { $0.value.lastSeen > cutoff }
+            .map { ConnectedAgent(id: $0.key, name: $0.value.name, version: $0.value.version, address: $0.value.address,
+                                  lastSeen: $0.value.lastSeen,
+                                  desktops: $0.value.desktops.filter { self.manager.session($0) != nil }.count) }
+            .sorted { $0.lastSeen > $1.lastSeen }
     }
 
     init(manager: SessionManager) { self.manager = manager }
@@ -32,7 +46,7 @@ final class PlaneMCP {
 
     /// Handles one POSTed JSON-RPC message. Returns the reply (nil for notifications) and, on
     /// initialize, the new Mcp-Session-Id.
-    func handle(_ obj: [String: Any], session mid: String?) async throws -> (Data?, String?) {
+    func handle(_ obj: [String: Any], session mid: String?, from address: String = "") async throws -> (Data?, String?) {
         let method = obj["method"] as? String
         var newID: String?
         let client: Client
@@ -49,11 +63,16 @@ final class PlaneMCP {
             throw APIError(400, "missing Mcp-Session-Id header")
         }
         client.lastSeen = Date()
+        if !address.isEmpty { client.address = address }
         guard let method, let rawID = obj["id"], !(rawID is NSNull) else { return (nil, newID) }
         let params = obj["params"] as? [String: Any] ?? [:]
         var reply: [String: Any] = ["jsonrpc": "2.0", "id": rawID]
         switch method {
         case "initialize":
+            if let info = params["clientInfo"] as? [String: Any] {
+                client.name = info["name"] as? String ?? ""
+                client.version = info["version"] as? String ?? ""
+            }
             reply["result"] = ["protocolVersion": params["protocolVersion"] as? String ?? Self.version,
                                "capabilities": ["tools": [:]],
                                "serverInfo": ["name": "desktop-plane", "version": "0.2.0"],
@@ -280,4 +299,14 @@ final class PlaneMCP {
         guard let d = try? JSONSerialization.data(withJSONObject: obj, options: [.sortedKeys]) else { return }
         if (try? Data(contentsOf: cacheURL)) != d { try? d.write(to: cacheURL, options: .atomic) }
     }
+}
+
+/// An agent connected to the plane endpoint, for the app to show.
+public struct ConnectedAgent: Sendable, Identifiable {
+    public let id: String
+    public let name: String
+    public let version: String
+    public let address: String
+    public let lastSeen: Date
+    public let desktops: Int
 }

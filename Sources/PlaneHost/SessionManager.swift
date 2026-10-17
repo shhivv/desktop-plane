@@ -13,6 +13,9 @@ public final class SessionManager: ObservableObject {
     /// The plane's own MCP endpoint, `/v1/mcp`. Kept here so it outlives API restarts.
     private(set) lazy var planeMCP = PlaneMCP(manager: self)
 
+    /// Agents using the plane endpoint lately, most recent first.
+    public var connectedAgents: [ConnectedAgent] { planeMCP.connected }
+
     public init(settings: HostSettings) {
         self.settings = settings
         // Anything left from a crash belongs to sessions that no longer exist.

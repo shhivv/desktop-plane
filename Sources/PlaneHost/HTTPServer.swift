@@ -7,8 +7,18 @@ public struct HTTPRequest: Sendable {
     public var query: [String: String]
     public var headers: [String: String]
     public var body: Data
+    /// The connecting address. Behind `tailscale serve` this is loopback; see `client`.
+    public var peer = ""
 
     public func header(_ name: String) -> String? { headers[name.lowercased()] }
+
+    /// Who is calling: the forwarded address when a local proxy (tailscale serve) sits in front.
+    var client: String {
+        if peer == "127.0.0.1" || peer.isEmpty, let f = header("x-forwarded-for")?.split(separator: ",").first {
+            return f.trimmingCharacters(in: .whitespaces)
+        }
+        return peer
+    }
 
     var bearer: String? {
         guard let h = header("authorization"), h.lowercased().hasPrefix("bearer ") else { return nil }
@@ -81,13 +91,27 @@ final class HTTPServer: @unchecked Sendable {
         defer { close(fd) }
         var carry = Data()
         while true {
-            guard let (req, rest) = readRequest(fd, carry: carry) else { return }
+            guard var (parsed, rest) = readRequest(fd, carry: carry) else { return }
+            parsed.peer = Self.peerAddress(fd)
+            let req = parsed
             carry = rest
             let res = runBlocking { await self.handler(req) }
             let keepAlive = req.header("connection")?.lowercased() != "close"
             write(fd, res, keepAlive: keepAlive)
             if !keepAlive { return }
         }
+    }
+
+    static func peerAddress(_ fd: Int32) -> String {
+        var addr = sockaddr_in()
+        var len = socklen_t(MemoryLayout<sockaddr_in>.size)
+        let ok = withUnsafeMutablePointer(to: &addr) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { getpeername(fd, $0, &len) }
+        }
+        guard ok == 0 else { return "" }
+        var buf = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
+        inet_ntop(AF_INET, &addr.sin_addr, &buf, socklen_t(INET_ADDRSTRLEN))
+        return String(cString: buf)
     }
 
     private func readRequest(_ fd: Int32, carry: Data) -> (HTTPRequest, Data)? {

@@ -11,6 +11,11 @@ public enum AgentSetup {
     public static let serverName = "desktop-plane"
     public static let codexTokenVar = "DESKTOP_PLANE_TOKEN"
 
+    /// For Codex on another computer: the server's table for ~/.codex/config.toml.
+    public static func codexConfig(_ s: HostSettings) -> String {
+        "[mcp_servers.\(serverName)]\nurl = \"\(s.mcpURL)\"\nhttp_headers = { Authorization = \"Bearer \(s.adminToken)\" }"
+    }
+
     /// What to run to add the plane, ready to paste.
     public static func command(_ agent: Agent, _ s: HostSettings) -> String {
         switch agent {
@@ -65,6 +70,28 @@ public enum AgentSetup {
         lines.replaceSubrange((start + 1)..<end, with: [entry] + body)
         try lines.joined(separator: "\n").write(to: url, atomically: true, encoding: .utf8)
         chmod(url.path, 0o600)
+    }
+
+    /// Runs a program directly, without a shell.
+    static func run(_ path: String, _ args: [String]) async throws -> (status: Int32, output: String) {
+        try await withCheckedThrowingContinuation { cont in
+            DispatchQueue.global().async {
+                let p = Process()
+                p.executableURL = URL(fileURLWithPath: path)
+                p.arguments = args
+                let pipe = Pipe()
+                p.standardOutput = pipe
+                p.standardError = pipe
+                p.standardInput = FileHandle.nullDevice
+                do {
+                    try p.run()
+                    let out = pipe.fileHandleForReading.readDataToEndOfFile()
+                    p.waitUntilExit()
+                    cont.resume(returning: (p.terminationStatus,
+                                            String(decoding: out, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)))
+                } catch { cont.resume(throwing: error) }
+            }
+        }
     }
 
     /// Runs a command in the user's login shell, so a GUI app sees the same PATH as Terminal.

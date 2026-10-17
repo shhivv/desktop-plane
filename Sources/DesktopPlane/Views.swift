@@ -10,14 +10,14 @@ struct MenuContent: View {
             Text("Not running: \(err)")
         } else if let m = model.manager {
             if model.imageStage == .ready {
-                Text("\(model.liveCount) of \(m.settings.maxVMs) desktops in use")
+                Text("\(model.liveCount) of \(m.settings.maxVMs) desktops running")
             } else {
                 Text("Setup not finished")
             }
             if !m.sessions.isEmpty {
                 Divider()
                 ForEach(m.sessions) { s in
-                    Menu("\(s.id) · \(s.state.rawValue)") {
+                    Menu(s.id) {
                         Button("Watch") { model.watch(s) }
                         Button("Take Control") { model.watch(s); model.toggleControl(s) }
                         Button("End", role: .destructive) { model.stop(s) }
@@ -31,7 +31,6 @@ struct MenuContent: View {
             NSApp.activate(ignoringOtherApps: true)
         }
         if let s = model.service {
-            Button("Copy MCP URL") { model.copy(s.settings.mcpURL) }
             Button("Copy Claude Code Command") { model.copy(AgentSetup.command(.claude, s.settings)) }
         }
         Divider()
@@ -45,9 +44,8 @@ struct MainView: View {
     var body: some View {
         Group {
             if let err = model.startError {
-                VStack(spacing: 12) {
-                    MacMini(width: 160, on: false)
-                    Text("Desktop Plane couldn't start").font(T.sans(18, .semibold))
+                VStack(spacing: 10) {
+                    Text("Desktop Plane couldn't start").font(T.display(22))
                     Text(err).font(T.sans(13)).foregroundStyle(T.muted).textSelection(.enabled)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -57,7 +55,7 @@ struct MainView: View {
                 Dashboard()
             }
         }
-        .basementChrome()
+        .appChrome()
     }
 }
 
@@ -75,20 +73,18 @@ struct Dashboard: View {
     var body: some View {
         VStack(spacing: 0) {
             TopBar(pane: $pane)
-                .background(alignment: .top) { Lamplight(height: 420).offset(y: -40) }
             ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
+                VStack(alignment: .leading, spacing: 20) {
                     if let e = model.lastError {
-                        HStack(spacing: 10) {
-                            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(T.amber)
-                            Text(e).foregroundStyle(T.muted).textSelection(.enabled)
+                        HStack(alignment: .firstTextBaseline, spacing: 10) {
+                            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(T.amber).font(.system(size: 11))
+                            Text(e).foregroundStyle(T.text).textSelection(.enabled)
                             Spacer()
-                            Button { model.lastError = nil } label: { Image(systemName: "xmark") }.buttonStyle(GhostButton())
+                            Button("Dismiss") { model.lastError = nil }.buttonStyle(LinkButton())
                         }
                         .font(T.sans(13))
-                        .padding(14)
-                        .background(RoundedRectangle(cornerRadius: 8).fill(T.amber.opacity(0.06)))
-                        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(T.amber.opacity(0.25)))
+                        .padding(12)
+                        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(T.amber.opacity(0.08)))
                     }
                     switch pane {
                     case .desktops: DesktopsPane()
@@ -98,9 +94,9 @@ struct Dashboard: View {
                     case .settings: SettingsPane()
                     }
                 }
-                .frame(maxWidth: 1080, alignment: .leading)
-                .padding(.horizontal, 40)
-                .padding(.vertical, 36)
+                .frame(maxWidth: 1040, alignment: .leading)
+                .padding(.horizontal, 36)
+                .padding(.vertical, 28)
                 .frame(maxWidth: .infinity)
             }
             .scrollContentBackground(.hidden)
@@ -114,25 +110,39 @@ private struct TopBar: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 12) {
-                Mark(size: 18)
-                Text("Desktop Plane").font(T.serif(20))
-                Text("/").foregroundStyle(T.borderStrong).font(T.sans(18))
-                Text(Host.current().localizedName ?? "This Mac").font(T.sans(14)).foregroundStyle(T.muted)
+            HStack(spacing: 10) {
+                Mark(size: 16)
+                Text("Desktop Plane").font(T.sans(14, .semibold))
                 Spacer()
-                StatusPill()
+                ReachBadge()
             }
             .padding(.leading, 84)
-            .padding(.trailing, 24)
-            .frame(height: 52)
-            HStack(spacing: 4) {
+            .padding(.trailing, 20)
+            .frame(height: 50)
+            HStack(spacing: 2) {
                 ForEach(Dashboard.Pane.allCases) { p in
                     Tab(title: p.rawValue, active: p == pane) { pane = p }
                 }
                 Spacer()
             }
-            .padding(.horizontal, 28)
+            .padding(.horizontal, 26)
             Rectangle().fill(T.border).frame(height: 1)
+        }
+        .background(Color.black.opacity(0.12))
+    }
+}
+
+/// Where agents reach this Mac, at a glance.
+private struct ReachBadge: View {
+    @EnvironmentObject var model: AppModel
+    var body: some View {
+        if let s = model.service?.settings {
+            let mode = Reachability.mode(s)
+            HStack(spacing: 7) {
+                LED(on: true, color: mode == .local ? T.amber : T.led)
+                Text(mode == .local ? "Only reachable from this Mac" : s.publicURL.replacingOccurrences(of: "https://", with: "").replacingOccurrences(of: "http://", with: ""))
+                    .font(T.sans(12.5)).foregroundStyle(T.muted)
+            }
         }
     }
 }
@@ -149,11 +159,9 @@ private struct Tab: View {
                 Text(title)
                     .font(T.sans(13.5, active ? .medium : .regular))
                     .foregroundStyle(active || hover ? T.text : T.muted)
-                    .padding(.horizontal, 12)
+                    .padding(.horizontal, 10)
                     .frame(height: 34)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(hover && !active ? T.raised : .clear))
-                Rectangle().fill(active ? T.lamp : .clear).frame(height: 2).padding(.horizontal, 8)
-                    .shadow(color: active ? T.lamp.opacity(0.7) : .clear, radius: 4)
+                Rectangle().fill(active ? T.text : .clear).frame(height: 1.5).padding(.horizontal, 10)
             }
             .fixedSize()
         }
@@ -162,30 +170,15 @@ private struct Tab: View {
     }
 }
 
-private struct StatusPill: View {
-    @EnvironmentObject var model: AppModel
-    var body: some View {
-        HStack(spacing: 8) {
-            LED(on: model.service != nil)
-            Text(model.service.map { $0.settings.mcpURL.replacingOccurrences(of: "http://", with: "") } ?? "Stopped")
-                .font(T.mono(11.5)).foregroundStyle(T.muted)
-        }
-        .padding(.horizontal, 12)
-        .frame(height: 28)
-        .background(Capsule().fill(T.surface))
-        .overlay(Capsule().strokeBorder(T.border))
-    }
-}
-
 private struct PaneHeader<Trailing: View>: View {
     let title: String
-    let subtitle: String
+    var subtitle: String = ""
     @ViewBuilder var trailing: Trailing
     var body: some View {
-        HStack(alignment: .center) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(title).font(T.serif(42))
-                Text(subtitle).font(T.sans(14)).foregroundStyle(T.muted)
+        HStack(alignment: .lastTextBaseline) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title).font(T.display(26))
+                if !subtitle.isEmpty { Text(subtitle).font(T.sans(13.5)).foregroundStyle(T.muted) }
             }
             Spacer()
             trailing
@@ -201,110 +194,93 @@ private struct DesktopsPane: View {
     var body: some View {
         let sessions = model.manager?.sessions ?? []
         let max = model.manager?.settings.maxVMs ?? 2
-        PaneHeader(title: "Desktops", subtitle: "\(model.liveCount) of \(max) running · each one is deleted when it ends") {
+        PaneHeader(title: "Desktops", subtitle: "\(model.liveCount) of \(max) running") {
             Button { model.newDesktop() } label: {
                 HStack(spacing: 6) {
-                    if model.creating { ProgressView().controlSize(.mini) } else { Image(systemName: "plus").font(.system(size: 11, weight: .semibold)) }
-                    Text("New desktop")
+                    if model.creating { ProgressView().controlSize(.mini) }
+                    Text(model.creating ? "Starting…" : "New desktop")
                 }
             }
-            .buttonStyle(PrimaryButton())
+            .buttonStyle(SecondaryButton())
             .disabled(model.liveCount >= max || model.creating)
         }
         if sessions.isEmpty {
-            EmptyDesktops()
+            VStack(spacing: 0) {
+                MacMini(width: 150, on: false).padding(.bottom, 26)
+                Text("No desktops running").font(T.sans(15, .medium))
+                Text("Your agents start one when they need a screen.")
+                    .font(T.sans(13.5)).foregroundStyle(T.muted).padding(.top, 4)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 72)
         } else {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: 16)], spacing: 16) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: 14)], spacing: 14) {
                 ForEach(sessions) { DesktopCard(session: $0) }
             }
         }
     }
 }
 
-private struct EmptyDesktops: View {
-    var body: some View {
-        VStack(spacing: 14) {
-            MacMini(width: 200, on: false).padding(.bottom, 10)
-            Text("The Mac is waiting").font(T.serif(28))
-            Text("Your agent starts one when it needs a screen. Ask it something like:")
-                .font(T.sans(13.5)).foregroundStyle(T.muted)
-            Terminal(text: "Start a desktop with Safari, open apple.com and tell me the headline.", prompt: "›")
-                .frame(maxWidth: 660)
-                .padding(.top, 4)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 64)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .strokeBorder(T.borderStrong, style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
-        )
-    }
-}
-
 private struct DesktopCard: View {
     @EnvironmentObject var model: AppModel
     let session: Session
-    @State private var hover = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             ZStack {
-                Rectangle().fill(Color(white: 0.02))
+                Color.black.opacity(0.4)
                 if let vm = session.vm, session.state == .ready {
                     VMDisplay(vm: vm)
                 } else {
-                    VStack(spacing: 10) {
-                        ProgressView().controlSize(.small)
-                        Text(session.state == .starting ? "Starting" : session.state.rawValue.capitalized)
-                            .font(T.sans(12)).foregroundStyle(T.faint)
-                    }
+                    ProgressView().controlSize(.small)
                 }
             }
             .aspectRatio(16.0 / 10.0, contentMode: .fit)
             .onTapGesture(count: 2) { model.watch(session) }
-            Rectangle().fill(T.border).frame(height: 1)
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 8) {
-                    LED(color: color, pulse: session.state == .starting)
-                    Text(session.id).font(T.mono(12.5, .medium))
+                    LED(on: true, color: color, pulse: session.state == .starting)
+                    Text(statusLine).font(T.sans(13.5, .medium))
                     Spacer()
-                    if session.agentAttached {
-                        HStack(spacing: 6) { AgentOrb(size: 15); Text("agent driving").font(T.sans(11.5)).foregroundStyle(T.muted) }
-                    }
                     TimelineView(.periodic(from: .now, by: 30)) { _ in
-                        Text(remaining).font(T.mono(11.5)).foregroundStyle(T.faint)
+                        Text(remaining).font(T.sans(12.5)).foregroundStyle(T.muted)
                     }
-                }
-                if !session.detail.isEmpty {
-                    Text(session.detail).font(T.sans(12)).foregroundStyle(T.muted).lineLimit(1)
                 }
                 HStack(spacing: 8) {
+                    Text(session.id).font(T.mono(11)).foregroundStyle(T.faint).textSelection(.enabled)
+                    Spacer()
                     Button("Watch") { model.watch(session) }.buttonStyle(SecondaryButton()).disabled(session.vm == nil)
                     Button("Take control") { model.watch(session); model.toggleControl(session) }
                         .buttonStyle(SecondaryButton()).disabled(session.vm == nil)
-                    Spacer()
                     Button("End") { model.stop(session) }.buttonStyle(SecondaryButton(destructive: true))
                 }
             }
             .padding(14)
         }
         .background(T.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 14))
-        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(hover ? T.borderStrong : T.border))
-        .onHover { hover = $0 }
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(T.border))
+    }
+
+    private var statusLine: String {
+        switch session.state {
+        case .starting: "Starting"
+        case .ready: session.agentAttached ? "In use by an agent" : "Ready"
+        case .stopping: "Ending"
+        case .stopped, .failed: "Ended"
+        }
     }
 
     private var remaining: String {
-        let m = Int(session.expires.timeIntervalSinceNow / 60)
-        guard session.state == .ready else { return session.state.rawValue }
-        return m >= 60 ? "\(m / 60)h \(m % 60)m left" : "\(max(m, 0))m left"
+        guard session.state == .ready else { return "" }
+        let m = max(Int(session.expires.timeIntervalSinceNow / 60), 0)
+        return m >= 60 ? "Ends in \(m / 60) h \(m % 60) min" : "Ends in \(m) min"
     }
 
     private var color: Color {
         switch session.state {
         case .ready: T.led
-        case .starting: T.amber
-        case .stopping: T.amber
+        case .starting, .stopping: T.amber
         case .stopped, .failed: T.faint
         }
     }
@@ -314,56 +290,103 @@ private struct DesktopCard: View {
 
 private struct AgentsPane: View {
     @EnvironmentObject var model: AppModel
-    @State private var reveal = false
 
     var body: some View {
-        PaneHeader(title: "Agents", subtitle: "One MCP server that starts, drives and ends desktops") { EmptyView() }
-        AgentsList()
-        if let s = model.service {
-            Block(title: "Endpoint", detail: "For any other MCP client. Streamable HTTP with a bearer token.") {
-                Terminal(text: s.settings.mcpURL, prompt: "URL")
-                Terminal(text: "Authorization: Bearer \(s.settings.adminToken)", prompt: "Header",
-                         display: "Authorization: Bearer " + String(repeating: "•", count: 24))
+        PaneHeader(title: "Agents", subtitle: "Agents run on your computer and use this Mac's desktops") { EmptyView() }
+        Panel(padding: 0) {
+            TimelineView(.periodic(from: .now, by: 5)) { _ in
+                let agents = model.manager?.connectedAgents ?? []
+                VStack(spacing: 0) {
+                    if agents.isEmpty {
+                        Text("No agents have connected in the last 10 minutes.")
+                            .font(T.sans(13)).foregroundStyle(T.muted)
+                            .frame(maxWidth: .infinity, alignment: .leading).padding(16)
+                    }
+                    ForEach(agents) { a in
+                        HStack(spacing: 10) {
+                            LED()
+                            Text(AgentName.pretty(a.name)).font(T.sans(13.5, .medium))
+                            Text(a.address.isEmpty || a.address == "127.0.0.1" ? "this Mac" : a.address)
+                                .font(T.mono(11)).foregroundStyle(T.faint)
+                            Spacer()
+                            Text(a.desktops == 1 ? "1 desktop" : "\(a.desktops) desktops").font(T.sans(12.5)).foregroundStyle(T.muted)
+                            Text(a.lastSeen, style: .relative).font(T.sans(12.5)).foregroundStyle(T.faint).frame(width: 90, alignment: .trailing)
+                        }
+                        .padding(.horizontal, 16).frame(height: 46)
+                        if a.id != agents.last?.id { Rectangle().fill(T.border).frame(height: 1) }
+                    }
+                }
             }
-            Block(title: "Tools", detail: "What your agent can call.") {
-                FlowTags(tags: ["desktop_create", "desktop_open", "desktop_screenshot", "desktop_list", "desktop_end",
-                                "observe", "act", "type_text", "click_at", "press", "scroll_at", "commands", "run_command"])
-            }
-            Block(title: "From another Mac", detail: "Keep the API on this Mac and reach it over Tailscale, then set the public URL in Settings to the https address it prints.") {
-                Terminal(text: "tailscale serve --bg \(s.settings.port)")
-            }
+        }
+        Block(title: "Connect another computer",
+              detail: "Run this on the computer where you use Claude Code or Codex.") {
+            ConnectInstructions()
+        }
+        Block(title: "Agents on this Mac", detail: "If you also run an agent here, add it in one click.") {
+            LocalAgents()
         }
     }
 }
 
+/// A titled section: a short description on the left, its content on the right.
 private struct Block<Content: View>: View {
     let title: String
     let detail: String
     @ViewBuilder let content: Content
     var body: some View {
-        HStack(alignment: .top, spacing: 32) {
-            VStack(alignment: .leading, spacing: 6) {
+        HStack(alignment: .top, spacing: 28) {
+            VStack(alignment: .leading, spacing: 5) {
                 Text(title).font(T.sans(14, .medium))
-                Text(detail).font(T.sans(13)).foregroundStyle(T.muted).fixedSize(horizontal: false, vertical: true)
+                Text(detail).font(T.sans(13)).foregroundStyle(T.muted).lineSpacing(2).fixedSize(horizontal: false, vertical: true)
             }
-            .frame(width: 260, alignment: .leading)
+            .frame(width: 240, alignment: .leading)
             VStack(alignment: .leading, spacing: 10) { content }
         }
-        .padding(.top, 20)
+        .padding(.top, 18)
         .overlay(alignment: .top) { Rectangle().fill(T.border).frame(height: 1) }
+        .padding(.top, 6)
     }
 }
 
-private struct FlowTags: View {
-    let tags: [String]
+/// Adds the plane to Claude Code or Codex on this same Mac.
+private struct LocalAgents: View {
+    @EnvironmentObject var model: AppModel
+    @State private var installed: [AgentSetup.Agent: Bool] = [:]
+    @State private var state: [AgentSetup.Agent: String] = [:]
+
     var body: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 8, alignment: .leading)], alignment: .leading, spacing: 8) {
-            ForEach(tags, id: \.self) { t in
-                Text(t).font(T.mono(12)).foregroundStyle(T.text)
-                    .padding(.horizontal, 10).frame(height: 28)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(T.surface))
-                    .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(T.border))
+        HStack(spacing: 10) {
+            ForEach(AgentSetup.Agent.allCases, id: \.self) { a in
+                if state[a] == "added" {
+                    HStack(spacing: 6) {
+                        Image(systemName: "checkmark").font(.system(size: 10, weight: .bold)).foregroundStyle(T.green)
+                        Text("\(a.title) added").font(T.sans(13))
+                    }
+                    .padding(.trailing, 8)
+                } else {
+                    Button(state[a] == "adding" ? "Adding…" : "Add to \(a.title)") { add(a) }
+                        .buttonStyle(SecondaryButton())
+                        .disabled(installed[a] != true || state[a] == "adding")
+                        .help(installed[a] == false ? "\(a.rawValue) isn't installed on this Mac" : "")
+                }
             }
+        }
+        if let e = state.values.first(where: { $0.hasPrefix("error:") }) {
+            Text(String(e.dropFirst(6))).font(T.sans(12.5)).foregroundStyle(T.amber)
+        }
+        EmptyView().task {
+            for a in AgentSetup.Agent.allCases {
+                installed[a] = await AgentSetup.isInstalled(a)
+                if installed[a] == true, let s = model.service?.settings, await AgentSetup.isConfigured(a, s) { state[a] = "added" }
+            }
+        }
+    }
+
+    private func add(_ a: AgentSetup.Agent) {
+        guard let s = model.service?.settings else { return }
+        state[a] = "adding"
+        Task {
+            do { _ = try await AgentSetup.install(a, s); state[a] = "added" } catch { state[a] = "error:" + error.localizedDescription }
         }
     }
 }
@@ -376,50 +399,49 @@ private struct VolumesPane: View {
     @State private var sizeGB = 10
 
     var body: some View {
-        PaneHeader(title: "Volumes", subtitle: "Disks that outlive desktops, mounted at \(Volume.guestMountPoint)") { EmptyView() }
+        PaneHeader(title: "Volumes", subtitle: "Disks that outlive desktops. A desktop that asks for one sees it at \(Volume.guestMountPoint).") { EmptyView() }
         if let m = model.manager {
             Panel(padding: 0) {
                 VStack(spacing: 0) {
                     if m.volumes.isEmpty {
-                        Text("No volumes yet. Use one to keep a browser profile, logins or files between desktops.")
+                        Text("No volumes yet. Use one to keep a browser profile, logins or files from one desktop to the next.")
                             .font(T.sans(13)).foregroundStyle(T.muted)
-                            .frame(maxWidth: .infinity, alignment: .leading).padding(18)
+                            .frame(maxWidth: .infinity, alignment: .leading).padding(16)
                     }
                     ForEach(m.volumes, id: \.id) { v in
-                        HStack(spacing: 14) {
-                            Image(systemName: "externaldrive").foregroundStyle(T.muted)
+                        HStack(spacing: 12) {
                             VStack(alignment: .leading, spacing: 3) {
-                                Text(v.meta.name).font(T.sans(14, .medium))
-                                Text("\(v.id) · \(v.meta.sizeGB) GB · \(ByteCountFormatter.string(fromByteCount: v.allocatedBytes, countStyle: .file)) used")
-                                    .font(T.mono(11.5)).foregroundStyle(T.faint)
+                                Text(v.meta.name).font(T.sans(13.5, .medium))
+                                Text("\(ByteCountFormatter.string(fromByteCount: v.allocatedBytes, countStyle: .file)) of \(v.meta.sizeGB) GB used")
+                                    .font(T.sans(12.5)).foregroundStyle(T.muted)
                             }
                             Spacer()
-                            if let s = m.attachedSession(v.id) {
-                                HStack(spacing: 6) { LED(); Text(s).font(T.mono(11.5)).foregroundStyle(T.muted) }
+                            if m.attachedSession(v.id) != nil {
+                                HStack(spacing: 6) { LED(); Text("In use").font(T.sans(12.5)).foregroundStyle(T.muted) }
                             }
                             Button("Copy ID") { model.copy(v.id) }.buttonStyle(SecondaryButton())
                             Button("Delete") { model.run { try m.deleteVolume(v.id) } }
                                 .buttonStyle(SecondaryButton(destructive: true)).disabled(m.attachedSession(v.id) != nil)
                         }
-                        .padding(.horizontal, 18).frame(height: 64)
+                        .padding(.horizontal, 16).frame(height: 58)
                         Rectangle().fill(T.border).frame(height: 1)
                     }
                     HStack(spacing: 12) {
-                        TextField("Name", text: $name)
+                        TextField("New volume name", text: $name)
                             .textFieldStyle(.plain).font(T.sans(13))
-                            .padding(.horizontal, 10).frame(width: 220, height: 32)
-                            .background(RoundedRectangle(cornerRadius: 6).fill(T.bg))
-                            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(T.borderStrong))
-                        Stepper(value: $sizeGB, in: 1...500) { Text("\(sizeGB) GB").font(T.mono(12.5)) }
+                            .padding(.horizontal, 10).frame(width: 220, height: 28)
+                            .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Color.black.opacity(0.3)))
+                            .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).strokeBorder(T.border))
+                        Stepper(value: $sizeGB, in: 1...500) { Text("\(sizeGB) GB").font(T.sans(13)).monospacedDigit() }
                         Spacer()
                         Button("Create volume") {
                             let n = name.isEmpty ? nil : name
                             model.run { _ = try m.createVolume(name: n, sizeGB: sizeGB) }
                             name = ""
                         }
-                        .buttonStyle(PrimaryButton())
+                        .buttonStyle(SecondaryButton())
                     }
-                    .padding(.horizontal, 18).frame(height: 64)
+                    .padding(.horizontal, 16).frame(height: 58)
                 }
             }
         }
@@ -431,15 +453,15 @@ private struct VolumesPane: View {
 private struct ActivityPane: View {
     @EnvironmentObject var model: AppModel
     var body: some View {
-        PaneHeader(title: "Activity", subtitle: "Sessions, network connections and errors") { EmptyView() }
-        Panel(padding: 16) {
+        PaneHeader(title: "Activity", subtitle: "Desktops starting and ending, network connections, and errors") { EmptyView() }
+        Panel(padding: 14) {
             VStack(alignment: .leading, spacing: 3) {
-                if model.log.isEmpty { Text("Nothing yet.").foregroundStyle(T.faint) }
+                if model.log.isEmpty { Text("Nothing yet.").font(T.sans(13)).foregroundStyle(T.faint) }
                 ForEach(Array(model.log.suffix(200).enumerated()), id: \.offset) { _, line in
                     Text(line).foregroundStyle(color(line)).frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
-            .font(T.mono(11.5))
+            .font(T.mono(10.5))
             .textSelection(.enabled)
         }
     }
@@ -457,44 +479,20 @@ private struct ActivityPane: View {
 private struct SettingsPane: View {
     @EnvironmentObject var model: AppModel
     var body: some View {
-        PaneHeader(title: "Settings", subtitle: "This Mac: \(HostSettings.hostCPUs) cores, \(HostSettings.hostMemoryGB) GB memory") { EmptyView() }
-        Panel { SettingsSection() }
-        Panel(padding: 0) {
-            VStack(spacing: 0) {
-                SettingRow(title: "Launch at login", detail: "Keep desktops available after a restart.") {
-                    Toggle("", isOn: Binding(get: { model.launchAtLogin }, set: { model.launchAtLogin = $0 }))
-                        .labelsHidden().toggleStyle(.switch).tint(T.lamp)
-                }
-                Rectangle().fill(T.border).frame(height: 1)
-                SettingRow(title: "Golden image", detail: model.imageSummary) {
-                    HStack(spacing: 8) {
-                        Button("Redo snapshot") { model.run { try await model.builder.finalize() } }
-                            .buttonStyle(SecondaryButton()).disabled(model.builder.busy)
-                        Button("Set up again") { model.restartOnboarding() }
-                            .buttonStyle(SecondaryButton()).disabled(model.builder.busy)
-                    }
-                }
-                if model.builder.busy {
-                    ProgressRow(status: model.builder.status, progress: model.builder.progress).padding(18)
-                }
+        PaneHeader(title: "Settings", subtitle: "This Mac has \(HostSettings.hostCPUs) cores and \(HostSettings.hostMemoryGB) GB of memory") { EmptyView() }
+        Block(title: "Network", detail: "How agents on your computer reach this Mac.") { ReachOptions() }
+        Block(title: "Desktops", detail: "Size and limits for each desktop.") { SettingsSection() }
+        Block(title: "This Mac", detail: model.imageSummary) {
+            HStack(spacing: 8) {
+                Toggle("Open at login", isOn: Binding(get: { model.launchAtLogin }, set: { model.launchAtLogin = $0 }))
+                    .toggleStyle(.switch).controlSize(.small).font(T.sans(13))
+                Spacer()
+                Button("Redo snapshot") { model.run { try await model.builder.finalize() } }
+                    .buttonStyle(SecondaryButton()).disabled(model.builder.busy)
+                Button("Set up again") { model.restartOnboarding() }
+                    .buttonStyle(SecondaryButton()).disabled(model.builder.busy)
             }
+            if model.builder.busy { ProgressRow(status: model.builder.status, progress: model.builder.progress) }
         }
-    }
-}
-
-private struct SettingRow<Control: View>: View {
-    let title: String
-    let detail: String
-    @ViewBuilder let control: Control
-    var body: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title).font(T.sans(14, .medium))
-                Text(detail).font(T.sans(12.5)).foregroundStyle(T.muted)
-            }
-            Spacer()
-            control
-        }
-        .padding(.horizontal, 18).frame(minHeight: 64)
     }
 }

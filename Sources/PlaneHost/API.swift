@@ -48,7 +48,7 @@ struct API {
                 guard let obj = try? JSONSerialization.jsonObject(with: req.body) as? [String: Any] else {
                     throw APIError(400, "expected one JSON-RPC message")
                 }
-                let (reply, newID) = try await manager.planeMCP.handle(obj, session: req.header("mcp-session-id"))
+                let (reply, newID) = try await manager.planeMCP.handle(obj, session: req.header("mcp-session-id"), from: req.client)
                 var headers: [String: String] = [:]
                 if let newID { headers["Mcp-Session-Id"] = newID }
                 guard let reply else { return HTTPResponse(status: 202, headers: headers) }
