@@ -28,6 +28,12 @@ public enum AgentSetup {
         (try? await shell("command -v \(agent.rawValue)")).map { $0.status == 0 } ?? false
     }
 
+    /// Whether the agent already has the plane at this host's current URL.
+    public static func isConfigured(_ agent: Agent, _ s: HostSettings) async -> Bool {
+        guard let r = try? await shell("\(agent.rawValue) mcp get \(serverName)"), r.status == 0 else { return false }
+        return r.output.contains(s.mcpURL)
+    }
+
     /// Adds (or replaces) the plane in the agent's config. For Codex the token goes into the
     /// server's headers in ~/.codex/config.toml, so no environment variable is needed.
     public static func install(_ agent: Agent, _ s: HostSettings) async throws -> String {

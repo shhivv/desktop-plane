@@ -10,10 +10,7 @@ struct SettingsSection: View {
     @State private var error: String?
 
     var body: some View {
-        Section(title: "Settings") {
-            Text("This Mac: \(HostSettings.hostCPUs) cores, \(HostSettings.hostMemoryGB) GB memory")
-                .font(.callout).foregroundStyle(.secondary)
-
+        VStack(alignment: .leading, spacing: 12) {
             Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 10) {
                 GridRow {
                     Text("CPUs per desktop")
@@ -58,13 +55,17 @@ struct SettingsSection: View {
                         TextField("", value: $draft.port, format: .number.grouping(.never)).frame(width: 70)
                     }
                 }
+                GridRow {
+                    Text("Public URL")
+                    TextField("https://mini.tailnet.ts.net (optional)", text: $draft.publicURL).frame(width: 300)
+                }
             }
 
             ForEach(draft.warnings(), id: \.self) { Text("⚠︎ \($0)").font(.callout).foregroundStyle(.orange) }
             ForEach(draft.errors(), id: \.self) { Text($0).font(.callout).foregroundStyle(.red) }
             if let error { Text(error).font(.callout).foregroundStyle(.red) }
             if draft.needsResnapshot(VMImage.load(named: draft.image)) {
-                Text("CPU and memory apply to new desktops after you redo step 3 (Snapshot) above.")
+                Text("CPU and memory apply to new desktops after you redo the snapshot below.")
                     .font(.callout).foregroundStyle(.secondary)
             }
 

@@ -17,9 +17,10 @@ struct DesktopPlaneApp: App {
             MenuBarIcon().environmentObject(model)
         }
         Window("Desktop Plane", id: "main") {
-            MainView().environmentObject(model).frame(minWidth: 720, minHeight: 640)
+            MainView().environmentObject(model).frame(minWidth: 1040, minHeight: 680)
         }
         .windowResizability(.contentMinSize)
+        .windowStyle(.hiddenTitleBar)
     }
 }
 
@@ -32,7 +33,7 @@ struct MenuBarIcon: View {
         Image(systemName: model.liveCount > 0 ? "macwindow.on.rectangle" : "macwindow")
             .onAppear {
                 let forced = ProcessInfo.processInfo.environment["DP_OPEN_WINDOW"] != nil
-                if model.imageStage != .ready || forced {
+                if model.showOnboarding || forced {
                     openWindow(id: "main")
                     NSApp.activate(ignoringOtherApps: true)
                 }
@@ -79,6 +80,13 @@ final class AppModel: ObservableObject {
             }
         }
         refreshImage()
+        resumeOnboarding()
+        // For screenshots and design work: DP_STEP=welcome|install|setup|snapshot|connect.
+        if let name = ProcessInfo.processInfo.environment["DP_STEP"],
+           let step = OnboardingView.Step.allCases.first(where: { "\($0)" == name }) {
+            onboardingForced = true
+            onboardingStep = step
+        }
     }
 
     var manager: SessionManager? { service?.manager }
@@ -105,14 +113,82 @@ final class AppModel: ObservableObject {
         }
     }
 
+    // MARK: onboarding
+
+    @Published var onboardingStep: OnboardingView.Step = .welcome
+    @Published var creating = false
+    private static let onboardedKey = "onboarded"
+
+    /// Shown until the image is ready and the person has been through the connect step.
+    var showOnboarding: Bool {
+        imageStage != .ready || !UserDefaults.standard.bool(forKey: Self.onboardedKey) || onboardingForced
+    }
+    @Published private var onboardingForced = false
+
+    /// The step that matches the image's stage, for a first launch or a relaunch halfway through.
+    func resumeOnboarding() {
+        switch imageStage {
+        case nil: onboardingStep = builder.busy ? .install : .welcome
+        case .installed?: onboardingStep = builder.busy ? .install : .setup
+        case .provisioned?: onboardingStep = .snapshot
+        case .ready?: onboardingStep = .connect
+        }
+    }
+
+    func finishOnboarding() {
+        UserDefaults.standard.set(true, forKey: Self.onboardedKey)
+        onboardingForced = false
+        objectWillChange.send()
+    }
+
+    func restartOnboarding() {
+        onboardingForced = true
+        onboardingStep = .welcome
+    }
+
+    /// Boots the image for setup; moves on to the snapshot once the guest shuts down.
+    func provision() {
+        lastError = nil
+        Task {
+            do {
+                try await builder.provision()
+                refreshImage()
+                onboardingStep = .snapshot
+            } catch {
+                lastError = error.localizedDescription
+                refreshImage()
+            }
+        }
+    }
+
+    /// The setup VM in its own, larger window. The onboarding page keeps the steps.
+    func popOutProvisioning() {
+        guard let vm = builder.provisioningVM else { return }
+        if let w = windows["provision"] { w.show(); return }
+        let w = VMWindow(vm: vm, title: "Desktop Plane setup", interactive: true)
+        w.onClose = { [weak self] in self?.windows.removeValue(forKey: "provision") }
+        windows["provision"] = w
+        w.show()
+    }
+
     private func showProvisioning(_ vm: VZVirtualMachine?) {
-        if let vm {
-            let w = VMWindow(vm: vm, title: "Provisioning — finish setup, run install.sh, then shut down", interactive: true)
-            w.onClose = { [weak self] in Task { await self?.builder.abortProvisioning() } }
-            windows["provision"] = w
-            w.show()
-        } else {
-            windows.removeValue(forKey: "provision")?.window.close()
+        if vm == nil { windows.removeValue(forKey: "provision")?.window.close() }
+    }
+
+    var imageSummary: String {
+        guard let img = VMImage.load(named: builder.name) else { return "Not built" }
+        let m = img.meta
+        return "macOS \(m.macOSBuild) · \(m.cpus ?? 0) CPUs · \(m.memoryGB ?? 0) GB · \(m.diskGB) GB disk · \(m.stage.rawValue)"
+    }
+
+    /// Starts a desktop from the app, for a person to look at or hand to an agent.
+    func newDesktop() {
+        guard let m = manager else { return }
+        creating = true
+        lastError = nil
+        Task {
+            do { _ = try await m.create(.init()) } catch { lastError = error.localizedDescription }
+            creating = false
         }
     }
 
