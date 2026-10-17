@@ -114,6 +114,8 @@ struct Terminal: View {
     var display: String?
     /// Shrink to fit rather than cut the middle out.
     var fit = false
+    /// False where the text can't be pasted, such as into a VM with no shared clipboard.
+    var copyable = true
     @State private var copied = false
 
     var body: some View {
@@ -123,7 +125,7 @@ struct Terminal: View {
                 .lineLimit(1).truncationMode(.middle).minimumScaleFactor(fit ? 0.75 : 1)
                 .textSelection(.enabled)
             Spacer(minLength: 8)
-            CopyButton(text: text)
+            if copyable { CopyButton(text: text) }
         }
         .padding(.horizontal, 12)
         .frame(height: 38)

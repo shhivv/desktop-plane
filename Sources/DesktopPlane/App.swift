@@ -31,6 +31,10 @@ struct MenuBarIcon: View {
 
     var body: some View {
         Image(systemName: model.liveCount > 0 ? "macwindow.on.rectangle" : "macwindow")
+            .onChange(of: model.windowRequests) {
+                openWindow(id: "main")
+                NSApp.activate(ignoringOtherApps: true)
+            }
             .onAppear {
                 let forced = ProcessInfo.processInfo.environment["DP_OPEN_WINDOW"] != nil
                 if model.showOnboarding || forced {
@@ -44,6 +48,12 @@ struct MenuBarIcon: View {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         Task { @MainActor in AppModel.shared.start() }
+    }
+
+    /// Opening the app again (from Finder or Spotlight) shows its window.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        Task { @MainActor in AppModel.shared.windowRequests += 1 }
+        return true
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
@@ -117,6 +127,8 @@ final class AppModel: ObservableObject {
 
     @Published var onboardingStep: OnboardingView.Step = .welcome
     @Published var creating = false
+    /// Bumped to ask the menu bar scene to open the main window.
+    @Published var windowRequests = 0
     private static let onboardedKey = "onboarded"
 
     /// Shown until the image is ready and the person has been through the connect step.

@@ -131,11 +131,15 @@ public final class ImageBuilder: NSObject, ObservableObject {
         try await vm.start()
         set("Provisioning: finish Setup Assistant, then run install.sh in the VM's Terminal, then shut it down")
         try await withCheckedThrowingContinuation { (c: CheckedContinuation<Void, Error>) in provisionDone = c }
-        image.meta.stage = .provisioned
-        try image.save()
-        // Offline touch-ups the guest can't do for itself (see AgentUpdater).
+        // Offline touch-ups the guest can't do for itself (see AgentUpdater). It checks that the
+        // installer ran, and marks the image provisioned.
         set("Finishing guest setup")
-        Log.info(try AgentUpdater.update(image: image))
+        do {
+            Log.info(try AgentUpdater.update(image: image, requireInstalled: true))
+        } catch {
+            set("")
+            throw error
+        }
         set("Provisioned. Next: finalize.")
     }
 
@@ -159,6 +163,10 @@ public final class ImageBuilder: NSObject, ObservableObject {
         for f in [image.disk, image.aux, image.state, image.coldDisk, image.coldAux] {
             chmod(f.path, 0o600)
         }
+        // The old snapshot is about to go; no session may start from a half-built one.
+        var marking = image
+        marking.meta.stage = .provisioned
+        try marking.save()
         try? fm.removeItem(at: image.state)
 
         for f in [image.coldDisk, image.coldAux] { try? fm.removeItem(at: f) }

@@ -54,8 +54,19 @@ public struct HostSettings: Codable, Sendable {
            let s = try? JSONDecoder().decode(HostSettings.self, from: data) {
             return s.clamped()
         }
-        let s = HostSettings()
+        let s = HostSettings.recommended()
         try? s.save()
+        return s
+    }
+
+    /// First-run defaults sized to this Mac: leave about 6 GB for macOS itself, run two
+    /// desktops when that leaves each at least 5 GB, and never more than 8 GB per desktop.
+    public static func recommended() -> HostSettings {
+        var s = HostSettings()
+        let spare = max(hostMemoryGB - 6, 4)
+        s.maxVMs = spare >= 10 ? 2 : 1
+        s.memoryGBPerVM = min(max(spare / s.maxVMs, 4), 8)
+        s.cpusPerVM = min(4, max(2, hostCPUs / s.maxVMs))
         return s
     }
 

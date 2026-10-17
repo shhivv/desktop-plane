@@ -189,7 +189,9 @@ struct HostCheck: Identifiable {
                       detail: os.majorVersion >= 15 ? "Supported" : "Volumes need macOS 15",
                       ok: os.majorVersion >= 15, blocking: false),
             HostCheck(id: "mem", title: "\(HostSettings.hostMemoryGB) GB memory",
-                      detail: HostSettings.hostMemoryGB >= 16 ? "Two desktops at once" : "One desktop at a time",
+                      detail: HostSettings.recommended().maxVMs == 2
+                        ? "Two desktops at once, \(HostSettings.recommended().memoryGBPerVM) GB each"
+                        : "One desktop at a time",
                       ok: HostSettings.hostMemoryGB >= 16, blocking: false),
             HostCheck(id: "disk", title: "\(freeGB) GB free",
                       detail: freeGB >= 60 ? "About 60 GB needed" : "Free up about 60 GB",
@@ -283,8 +285,8 @@ private struct SetupInstructions: View {
                 Instruction(n: 1, title: "Finish Setup Assistant",
                             detail: "Create a local account. You can skip Apple Account, Location Services and Siri.")
                 Instruction(n: 2, title: "Run the installer",
-                            detail: "Open Terminal in the virtual machine and run:") {
-                    Terminal(text: SetupStep.command, fit: true).padding(.top, 4)
+                            detail: "Open Terminal in the virtual machine and type:") {
+                    Terminal(text: SetupStep.command, fit: true, copyable: false).padding(.top, 4)
                 }
                 Instruction(n: 3, title: "Give the agent permissions",
                             detail: "In System Settings, turn on Desktop Plane Agent under Accessibility and under Screen Recording.")
@@ -300,9 +302,26 @@ private struct SetupInstructions: View {
 
 private struct SetupScreen: View {
     @EnvironmentObject var model: AppModel
+    @State private var confirmRedo = false
+    @State private var confirmCancel = false
 
     var body: some View {
         let b = model.builder
+        content(b)
+            .confirmationDialog("Set up macOS again?", isPresented: $confirmRedo) {
+                Button("Set Up Again", role: .destructive) { model.provision() }
+            } message: {
+                Text("This deletes the saved snapshot. Desktops can't start until you finish setup and save a new one.")
+            }
+            .confirmationDialog("Cancel setup?", isPresented: $confirmCancel) {
+                Button("Cancel Setup", role: .destructive) { Task { await b.abortProvisioning(); model.refreshImage() } }
+                Button("Keep Going", role: .cancel) {}
+            } message: {
+                Text("The virtual machine stops now. You can start setup again later.")
+            }
+    }
+
+    @ViewBuilder private func content(_ b: ImageBuilder) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             ZStack {
                 RoundedRectangle(cornerRadius: 10, style: .continuous).fill(T.surface)
@@ -319,12 +338,13 @@ private struct SetupScreen: View {
                     LED(pulse: true)
                     Text("Running. Click inside to type.").font(T.sans(12.5)).foregroundStyle(T.muted)
                     Spacer()
+                    Button("Cancel setup") { confirmCancel = true }.buttonStyle(SecondaryButton())
                     Button("Open in window") { model.popOutProvisioning() }.buttonStyle(SecondaryButton())
                 } else if model.imageStage == .provisioned || model.imageStage == .ready, !b.busy {
                     Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)).foregroundStyle(T.green)
                     Text("Already set up").font(T.sans(13)).foregroundStyle(T.muted)
                     Spacer()
-                    Button("Set up again") { model.provision() }.buttonStyle(SecondaryButton(large: true))
+                    Button("Set up again") { confirmRedo = true }.buttonStyle(SecondaryButton(large: true))
                     Button("Continue") { model.onboardingStep = .snapshot }
                         .buttonStyle(PrimaryButton(large: true)).keyboardShortcut(.defaultAction)
                 } else {
@@ -549,7 +569,7 @@ struct ConnectInstructions: View {
         if model.service != nil, model.reachMode == .local {
             HStack(spacing: 10) {
                 Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(T.amber).font(.system(size: 11))
-                Text("Network access is off, so other computers can't connect. Turn it on in the previous step.")
+                Text("Network access is off, so other computers can't connect. Turn it on under Network access.")
                     .font(T.sans(13)).foregroundStyle(T.muted)
             }
         } else if let s = model.service?.settings {

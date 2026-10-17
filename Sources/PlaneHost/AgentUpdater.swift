@@ -25,7 +25,9 @@ public enum AgentUpdater {
     ]
 
     @MainActor
-    public static func update(image: VMImage) throws -> String {
+    /// `requireInstalled`: fail, without changing anything, if install.sh never ran in the guest
+    /// (no agent app or login item), as when the setup VM is shut down early.
+    public static func update(image: VMImage, requireInstalled: Bool = false) throws -> String {
         var image = image
         for f in [image.disk, image.aux] { chmod(f.path, 0o600) }
         let (devices, mounts) = try attach(image.disk)
@@ -35,6 +37,14 @@ public enum AgentUpdater {
         }
         var notes: [String] = []
         let fm = FileManager.default
+        if requireInstalled {
+            let app = data.appendingPathComponent("Applications/\(GuestTools.agentBundleName)")
+            let homes = (try? fm.contentsOfDirectory(at: data.appendingPathComponent("Users"), includingPropertiesForKeys: nil)) ?? []
+            let launchAgent = homes.contains { fm.fileExists(atPath: $0.appendingPathComponent("Library/LaunchAgents/\(bundleID).plist").path) }
+            guard fm.fileExists(atPath: app.path), launchAgent else {
+                throw PlaneError("The installer didn't finish in the virtual machine. Start it again, run the installer until it says Done, then shut down.")
+            }
+        }
 
         // 1. Agent core.
         let coreDst = data.appendingPathComponent(String(GuestTools.guestCorePath.dropFirst()))

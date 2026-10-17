@@ -59,11 +59,31 @@ struct SettingsSection: View {
         }
         .onReceive(model.objectWillChange) { _ in
             // Picks up `planed config` edits while nothing is being edited here.
-            if !changed, let s = model.service?.settings, !Self.same(s, saved) { draft = s; saved = s }
+            if let s = model.service?.settings, !Self.same(s, saved) {
+                // Keep any desktop edits in progress on top of the new settings.
+                var keep = s
+                if changed { Self.copyDesktopFields(from: draft, to: &keep) }
+                draft = keep
+                saved = s
+            }
         }
     }
 
-    private var changed: Bool { !Self.same(draft, saved) }
+    private var changed: Bool {
+        var a = saved, b = saved
+        Self.copyDesktopFields(from: draft, to: &b)
+        Self.copyDesktopFields(from: saved, to: &a)
+        return !Self.same(a, b)
+    }
+
+    static func copyDesktopFields(from d: HostSettings, to n: inout HostSettings) {
+        n.cpusPerVM = d.cpusPerVM
+        n.memoryGBPerVM = d.memoryGBPerVM
+        n.diskGB = d.diskGB
+        n.maxVMs = d.maxVMs
+        n.defaultTTLSeconds = d.defaultTTLSeconds
+        n.defaultIdleTimeoutSeconds = d.defaultIdleTimeoutSeconds
+    }
 
     private func minutes(_ kp: WritableKeyPath<HostSettings, Int>) -> Binding<Int> {
         Binding(get: { draft[keyPath: kp] / 60 }, set: { draft[keyPath: kp] = $0 * 60 })
@@ -72,8 +92,13 @@ struct SettingsSection: View {
     private func save() {
         error = nil
         do {
-            if let service = model.service { try service.apply(draft) } else { try draft.save() }
-            saved = draft
+            // Only this section's fields: network settings change elsewhere and must not be
+            // overwritten with a stale copy.
+            var n = model.service?.settings ?? HostSettings.load()
+            Self.copyDesktopFields(from: draft, to: &n)
+            if let service = model.service { try service.apply(n) } else { try n.save() }
+            draft = n
+            saved = n
         } catch {
             self.error = error.localizedDescription
         }

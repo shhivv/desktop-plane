@@ -515,7 +515,8 @@ private struct SettingsPane: View {
                     .toggleStyle(.switch).controlSize(.small).font(T.sans(13))
                 Spacer()
                 Button("Save new snapshot") { model.run { try await model.builder.finalize() } }
-                    .buttonStyle(SecondaryButton()).disabled(model.builder.busy)
+                    .buttonStyle(SecondaryButton()).disabled(model.builder.busy || model.liveCount > 0)
+                    .help(model.liveCount > 0 ? "End all desktops first" : "")
                 Button("Run setup again") { model.restartOnboarding() }
                     .buttonStyle(SecondaryButton()).disabled(model.builder.busy)
             }
