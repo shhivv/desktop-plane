@@ -2,6 +2,8 @@
 
 Turn a spare Mac into macOS desktops your AI agents can use.
 
+**[Download for Mac](https://github.com/shhivv/desktop-plane/releases/latest)** (Apple silicon, macOS 14 or later)
+
 Your agents keep running on your own computer. When one needs to use a Mac app, it asks
 Desktop Plane for a desktop: a fresh macOS virtual machine on the spare Mac, ready in seconds.
 The agent sees the screen, clicks and types through MCP, and the desktop is deleted when it's
@@ -43,7 +45,7 @@ macOS allows two macOS VMs at a time on one Mac, so one Mac runs up to two deskt
 
 ## Install
 
-1. Download the DMG from [Releases](https://github.com/shhivv/desktop-plane/releases), drag
+1. Download the DMG from the [latest release](https://github.com/shhivv/desktop-plane/releases/latest), drag
    **Desktop Plane** to Applications, and open it.
 2. Follow the setup in the window. It takes 20–40 minutes, most of it the macOS download.
    - **Install macOS.** Downloads macOS (about 17 GB) into a virtual machine.
