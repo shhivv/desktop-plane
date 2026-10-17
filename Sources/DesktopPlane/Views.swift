@@ -63,7 +63,8 @@ struct MainView: View {
 
 struct Dashboard: View {
     @EnvironmentObject var model: AppModel
-    @State private var pane: Pane = .desktops
+    // DP_PANE=agents etc. opens a tab directly, for screenshots.
+    @State private var pane: Pane = Pane.allCases.first { $0.rawValue.lowercased() == ProcessInfo.processInfo.environment["DP_PANE"] } ?? .desktops
 
     enum Pane: String, CaseIterable, Identifiable {
         case desktops = "Desktops", agents = "Agents", volumes = "Volumes", activity = "Activity", settings = "Settings"
@@ -361,30 +362,37 @@ private struct LocalAgents: View {
     @State private var state: [AgentSetup.Agent: String] = [:]
 
     var body: some View {
-        HStack(spacing: 10) {
-            ForEach(AgentSetup.Agent.allCases, id: \.self) { a in
-                if state[a] == "added" {
-                    HStack(spacing: 6) {
-                        Image(systemName: "checkmark").font(.system(size: 10, weight: .bold)).foregroundStyle(T.green)
-                        Text("\(a.title) added").font(T.sans(13))
-                    }
-                    .padding(.trailing, 8)
-                } else {
-                    Button(state[a] == "adding" ? "Adding…" : "Add to \(a.title)") { add(a) }
-                        .buttonStyle(SecondaryButton())
-                        .disabled(installed[a] != true || state[a] == "adding")
-                        .help(installed[a] == false ? "\(a.rawValue) isn't installed on this Mac" : "")
-                }
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 16) {
+                ForEach(AgentSetup.Agent.allCases, id: \.self) { a in item(a) }
+            }
+            if let e = state.values.first(where: { $0.hasPrefix("error:") }) {
+                Text(String(e.dropFirst(6))).font(T.sans(12.5)).foregroundStyle(T.amber)
             }
         }
-        if let e = state.values.first(where: { $0.hasPrefix("error:") }) {
-            Text(String(e.dropFirst(6))).font(T.sans(12.5)).foregroundStyle(T.amber)
-        }
-        EmptyView().task {
+        .task {
             for a in AgentSetup.Agent.allCases {
                 installed[a] = await AgentSetup.isInstalled(a)
                 if installed[a] == true, let s = model.service?.settings, await AgentSetup.isConfigured(a, s) { state[a] = "added" }
             }
+        }
+    }
+
+    @ViewBuilder private func item(_ a: AgentSetup.Agent) -> some View {
+        switch (installed[a], state[a]) {
+        case (nil, _):
+            Text("Checking for \(a.title)…").font(T.sans(13)).foregroundStyle(T.faint)
+        case (false?, _):
+            Text("\(a.title) isn't installed").font(T.sans(13)).foregroundStyle(T.faint)
+        case (_, "added"?):
+            HStack(spacing: 6) {
+                Image(systemName: "checkmark").font(.system(size: 10, weight: .bold)).foregroundStyle(T.green)
+                Text("Added to \(a.title)").font(T.sans(13))
+            }
+        default:
+            Button(state[a] == "adding" ? "Adding…" : "Add to \(a.title)") { add(a) }
+                .buttonStyle(SecondaryButton())
+                .disabled(state[a] == "adding")
         }
     }
 

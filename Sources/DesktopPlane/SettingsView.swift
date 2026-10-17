@@ -29,11 +29,7 @@ struct SettingsSection: View {
                 }
                 GridRow {
                     Text("Desktops at once")
-                    Picker("", selection: $draft.maxVMs) {
-                        Text("1").tag(1)
-                        Text("2 (the macOS limit)").tag(2)
-                    }
-                    .labelsHidden().pickerStyle(.segmented).frame(width: 220)
+                    Choice(selection: $draft.maxVMs, options: [(1, "1"), (2, "2, the macOS limit")])
                 }
                 GridRow {
                     Text("Maximum lifetime")
@@ -45,7 +41,7 @@ struct SettingsSection: View {
                 }
             }
 
-            ForEach(draft.warnings(), id: \.self) { Text("⚠︎ \($0)").font(T.sans(12.5)).foregroundStyle(T.amber) }
+            ForEach(draft.warnings().filter { !$0.contains("reachable from other machines") }, id: \.self) { Text("⚠︎ \($0)").font(T.sans(12.5)).foregroundStyle(T.amber) }
             ForEach(draft.errors(), id: \.self) { Text($0).font(T.sans(12.5)).foregroundStyle(T.red) }
             if let error { Text(error).font(T.sans(12.5)).foregroundStyle(T.red) }
             if draft.needsResnapshot(VMImage.load(named: draft.image)) {

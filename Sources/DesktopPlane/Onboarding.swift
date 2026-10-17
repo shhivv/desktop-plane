@@ -533,10 +533,7 @@ struct ConnectInstructions: View {
             }
         } else if let s = model.service?.settings {
             VStack(alignment: .leading, spacing: 16) {
-                Picker("", selection: $agent) {
-                    ForEach(AgentSetup.Agent.allCases, id: \.self) { Text($0.title).tag($0) }
-                }
-                .pickerStyle(.segmented).labelsHidden().frame(width: 220)
+                Choice(selection: $agent, options: AgentSetup.Agent.allCases.map { ($0, $0.title) })
                 switch agent {
                 case .claude:
                     CodeBlock(text: AgentSetup.command(.claude, s),

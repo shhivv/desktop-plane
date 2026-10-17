@@ -293,3 +293,28 @@ extension View {
             .background(T.bg.ignoresSafeArea())
     }
 }
+
+/// Pick one of a few options: separate buttons with room between them, the chosen one filled.
+struct Choice<Value: Hashable>: View {
+    @Binding var selection: Value
+    let options: [(Value, String)]
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ForEach(options, id: \.0) { value, label in
+                let on = value == selection
+                Button { selection = value } label: {
+                    Text(label)
+                        .font(T.sans(13, on ? .medium : .regular))
+                        .foregroundStyle(on ? T.text : T.muted)
+                        .padding(.horizontal, 12)
+                        .frame(height: 28)
+                        .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(on ? Color.white.opacity(0.11) : .clear))
+                        .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).strokeBorder(on ? T.borderStrong : T.border))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+}
