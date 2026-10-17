@@ -1,13 +1,13 @@
 #!/bin/bash
 # Builds a signed, notarized dist/DesktopPlane-<version>.dmg that opens cleanly on any Mac.
-#   SIGN_ID="Developer ID Application: …" NOTARY_PROFILE=<profile> VERSION=0.2.0 scripts/release.sh
+#   SIGN_ID="Developer ID Application: …" NOTARY_PROFILE=<profile> VERSION=0.2.1 scripts/release.sh
 # NOTARY_PROFILE is a notarytool keychain profile, made once with:
 #   xcrun notarytool store-credentials <profile> --apple-id <id> --team-id <team>   (prompts for an app-specific password)
 # Leave NOTARY_PROFILE unset to build and sign without notarizing.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 : "${SIGN_ID:?set SIGN_ID to a Developer ID Application identity (security find-identity -v -p codesigning)}"
-VERSION="${VERSION:-0.2.0}"
+VERSION="${VERSION:-0.2.1}"
 export SIGN_ID VERSION
 
 scripts/bundle.sh
