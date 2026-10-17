@@ -268,19 +268,13 @@ struct MacMini: View {
     }
 }
 
-/// The mark, small: the Mac mini's front edge and its light.
+/// The mark, small: this Mac, with its power light.
 struct Mark: View {
-    var size: CGFloat = 18
+    var size: CGFloat = 16
     var body: some View {
-        ZStack(alignment: .trailing) {
-            RoundedRectangle(cornerRadius: size * 0.2, style: .continuous)
-                .fill(LinearGradient(colors: [Color(hex: 0x6A665F), Color(hex: 0x2E2C29)], startPoint: .top, endPoint: .bottom))
-                .overlay(RoundedRectangle(cornerRadius: size * 0.2, style: .continuous).strokeBorder(Color.white.opacity(0.14), lineWidth: 0.5))
-            Circle().fill(T.led).frame(width: size * 0.17, height: size * 0.17)
-                .shadow(color: T.lamp, radius: size * 0.12)
-                .padding(.trailing, size * 0.22)
-        }
-        .frame(width: size * 1.55, height: size * 0.55)
+        Image(systemName: "macmini.fill")
+            .font(.system(size: size, weight: .regular))
+            .foregroundStyle(T.text)
     }
 }
 
@@ -315,6 +309,58 @@ struct Choice<Value: Hashable>: View {
                 }
                 .buttonStyle(.plain)
             }
+        }
+    }
+}
+
+/// How it fits together: agents on your computer, desktops on this Mac. A dot crosses once
+/// from one to the other when it appears.
+struct HowItWorks: View {
+    @State private var sent = false
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 0) {
+            node(symbol: "laptopcomputer", title: "Your computer", detail: "Agents run here")
+            ZStack(alignment: .leading) {
+                Line().stroke(T.borderStrong, style: StrokeStyle(lineWidth: 1, dash: [3, 4]))
+                    .frame(height: 1)
+                GeometryReader { g in
+                    Circle().fill(T.led).frame(width: 5, height: 5)
+                        .shadow(color: T.lamp.opacity(0.8), radius: 3)
+                        .offset(x: sent ? g.size.width - 5 : 0, y: -2)
+                        .opacity(sent ? 1 : 0)
+                }
+                .frame(height: 1)
+            }
+            .frame(maxWidth: 220)
+            .padding(.top, 44)
+            .padding(.horizontal, 12)
+            node(symbol: "macmini", title: "This Mac", detail: "Desktops run here")
+        }
+        .frame(maxWidth: .infinity)
+        .onAppear {
+            withAnimation(.easeInOut(duration: 1.6).delay(0.5)) { sent = true }
+        }
+    }
+
+    private func node(symbol: String, title: String, detail: String) -> some View {
+        VStack(spacing: 10) {
+            Image(systemName: symbol).font(.system(size: 42, weight: .ultraLight)).foregroundStyle(T.text)
+                .frame(height: 56, alignment: .bottom)
+            VStack(spacing: 2) {
+                Text(title).font(T.sans(13, .medium))
+                Text(detail).font(T.sans(12.5)).foregroundStyle(T.muted)
+            }
+        }
+        .frame(width: 130)
+    }
+
+    private struct Line: Shape {
+        func path(in r: CGRect) -> Path {
+            var p = Path()
+            p.move(to: CGPoint(x: r.minX, y: r.midY))
+            p.addLine(to: CGPoint(x: r.maxX, y: r.midY))
+            return p
         }
     }
 }

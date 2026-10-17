@@ -213,7 +213,6 @@ private struct DesktopsPane: View {
         }
         if sessions.isEmpty {
             VStack(spacing: 0) {
-                MacMini(width: 150, on: false).padding(.bottom, 26)
                 Text("No desktops running").font(T.sans(15, .medium))
                 Text("Desktops start when an agent asks for one.")
                     .font(T.sans(13.5)).foregroundStyle(T.muted).padding(.top, 4)

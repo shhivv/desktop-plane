@@ -116,16 +116,12 @@ private struct ErrorLine: View {
 
 private struct WelcomeStep: View {
     @EnvironmentObject var model: AppModel
-    @State private var lit = false
 
     var body: some View {
         let checks = HostCheck.all()
         StepPage(title: "Set up this Mac for computer use",
                  subtitle: "Agents on your computer, like Claude Code and Codex, can use this Mac to control macOS apps. Each task gets its own macOS virtual machine, which is deleted when the task ends.") {
-            MacMini(width: 210, on: lit)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 18)
-                .onAppear { DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { lit = true } }
+            HowItWorks().padding(.vertical, 14)
             Panel(padding: 0) {
                 VStack(spacing: 0) {
                     ForEach(Array(checks.enumerated()), id: \.element.id) { i, c in
