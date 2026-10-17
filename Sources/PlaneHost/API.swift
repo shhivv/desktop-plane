@@ -4,6 +4,8 @@ import PlaneCore
 /// REST + MCP routes.
 ///
 ///     GET    /v1/health
+///     POST   /v1/mcp                          admin; the plane's MCP server (see PlaneMCP)
+///     DELETE /v1/mcp                          end a plane MCP session
 ///     POST   /v1/sessions                     admin
 ///     GET    /v1/sessions                     admin
 ///     GET    /v1/sessions/:id                 admin or that session's token
@@ -40,6 +42,26 @@ struct API {
                 return .json(200, ["ok": true, "image": image?.meta.stage.rawValue ?? "missing",
                                    "slots_total": manager.settings.maxVMs,
                                    "slots_free": manager.settings.maxVMs - manager.live.count])
+
+            case "POST /v1/mcp":
+                try requireAdmin(req)
+                guard let obj = try? JSONSerialization.jsonObject(with: req.body) as? [String: Any] else {
+                    throw APIError(400, "expected one JSON-RPC message")
+                }
+                let (reply, newID) = try await manager.planeMCP.handle(obj, session: req.header("mcp-session-id"))
+                var headers: [String: String] = [:]
+                if let newID { headers["Mcp-Session-Id"] = newID }
+                guard let reply else { return HTTPResponse(status: 202, headers: headers) }
+                headers["Content-Type"] = "application/json"
+                return HTTPResponse(status: 200, headers: headers, body: reply)
+
+            case "DELETE /v1/mcp":
+                try requireAdmin(req)
+                if let mid = req.header("mcp-session-id") { manager.planeMCP.close(mid) }
+                return HTTPResponse(status: 204)
+
+            case "GET /v1/mcp":
+                return HTTPResponse(status: 405, headers: ["Allow": "POST, DELETE"])
 
             case "POST /v1/sessions":
                 try requireAdmin(req)
@@ -158,7 +180,9 @@ struct API {
 
     @MainActor
     private func describe(_ s: Session, _ req: HTTPRequest) -> [String: Any] {
-        let base = "http://\(req.header("host") ?? "127.0.0.1:\(manager.settings.port)")/v1/sessions/\(s.id)"
+        let host = manager.settings.publicURL.isEmpty
+            ? "http://\(req.header("host") ?? "127.0.0.1:\(manager.settings.port)")" : manager.settings.clientURL
+        let base = host + "/v1/sessions/\(s.id)"
         let f = ISO8601DateFormatter()
         let net = (try? JSONSerialization.jsonObject(with: JSONEncoder().encode(s.policy))) ?? [:]
         return ["id": s.id, "state": s.state.rawValue, "boot": s.bootMode, "detail": s.detail,

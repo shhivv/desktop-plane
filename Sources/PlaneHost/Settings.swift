@@ -28,6 +28,9 @@ public struct HostSettings: Codable, Sendable {
     /// to reach it from elsewhere.
     public var bindAddress: String = "127.0.0.1"
     public var port: UInt16 = 7480
+    /// The address clients use, when it differs from the bind address: for example
+    /// `https://mini.tailnet.ts.net` behind `tailscale serve`. Used in the URLs the API hands out.
+    public var publicURL: String = ""
     /// Bearer token for creating, listing and deleting sessions.
     public var adminToken: String = Token.random()
     /// Concurrent VMs. macOS allows at most 2 macOS guests per host.
@@ -70,6 +73,7 @@ public struct HostSettings: Codable, Sendable {
         let d = HostSettings()
         bindAddress = try c.decodeIfPresent(String.self, forKey: .bindAddress) ?? d.bindAddress
         port = try c.decodeIfPresent(UInt16.self, forKey: .port) ?? d.port
+        publicURL = try c.decodeIfPresent(String.self, forKey: .publicURL) ?? d.publicURL
         adminToken = try c.decodeIfPresent(String.self, forKey: .adminToken) ?? d.adminToken
         maxVMs = try c.decodeIfPresent(Int.self, forKey: .maxVMs) ?? d.maxVMs
         cpusPerVM = try c.decodeIfPresent(Int.self, forKey: .cpusPerVM) ?? d.cpusPerVM
@@ -81,6 +85,14 @@ public struct HostSettings: Codable, Sendable {
         image = try c.decodeIfPresent(String.self, forKey: .image) ?? d.image
         guestMCPCommand = try c.decodeIfPresent(String.self, forKey: .guestMCPCommand) ?? d.guestMCPCommand
     }
+
+    /// Where clients reach the API: the public URL if set, else this Mac's loopback address.
+    public var clientURL: String {
+        let p = publicURL.trimmingCharacters(in: .whitespaces)
+        if !p.isEmpty { return p.hasSuffix("/") ? String(p.dropLast()) : p }
+        return "http://127.0.0.1:\(port)"
+    }
+    public var mcpURL: String { clientURL + "/v1/mcp" }
 
     public static var hostCPUs: Int { ProcessInfo.processInfo.activeProcessorCount }
     public static var hostMemoryGB: Int { Int(ProcessInfo.processInfo.physicalMemory >> 30) }
@@ -111,6 +123,9 @@ public struct HostSettings: Codable, Sendable {
         var a = in_addr()
         if inet_pton(AF_INET, bindAddress, &a) != 1 { e.append("bind address must be an IPv4 address, like 127.0.0.1 or 0.0.0.0") }
         if defaultTTLSeconds < 60 || defaultIdleTimeoutSeconds < 60 { e.append("TTL and idle timeout must be at least 60 seconds") }
+        if !publicURL.isEmpty, URL(string: publicURL)?.host == nil || !(publicURL.hasPrefix("http://") || publicURL.hasPrefix("https://")) {
+            e.append("public URL must look like https://mini.tailnet.ts.net")
+        }
         return e
     }
 

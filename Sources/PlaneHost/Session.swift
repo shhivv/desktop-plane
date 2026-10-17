@@ -122,14 +122,21 @@ public final class Session: NSObject, Identifiable {
             guard #available(macOS 15.0, *) else { throw PlaneError("data volumes need macOS 15 or later on the host") }
             try await attach(volume)
         }
-        if !open.isEmpty {
-            let r = try await GuestLink(vm: vm).control(.init(kind: .open, open: open), timeout: 60)
-            if let e = r.error { Log.warn(e, session: id) }
-        }
+        if !open.isEmpty, let e = try await openItems(open, vm: vm) { Log.warn(e, session: id) }
         detail = "arc-cua \(reply.arcCUA ?? "?") · screen recording \(reply.screenRecording ? "on" : "off")"
             + (volume.map { " · volume \($0.meta.name)" } ?? "")
         Log.info("ready in \(String(format: "%.1f", Date().timeIntervalSince(t0)))s (\(bootMode))", session: id)
         state = .ready
+    }
+
+    /// Opens apps and URLs in the guest. Returns what could not be opened, if anything.
+    func openItems(_ items: [String], vm: VZVirtualMachine? = nil) async throws -> String? {
+        guard items.count <= 10, items.allSatisfy({ !$0.isEmpty && $0.count <= 2048 && !$0.contains("\n") }) else {
+            throw APIError(400, "open takes up to 10 app names or URLs")
+        }
+        let link = try vm.map { try GuestLink(vm: $0) } ?? self.link
+        touch()
+        return try await link.control(.init(kind: .open, open: items), timeout: 60).error
     }
 
     /// Plugs the volume in as a USB drive and waits for the guest to mount it.

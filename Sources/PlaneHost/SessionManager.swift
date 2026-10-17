@@ -10,6 +10,8 @@ public final class SessionManager: ObservableObject {
     @Published public private(set) var volumes: [Volume] = []
     public private(set) var settings: HostSettings
     private var reaper: Timer?
+    /// The plane's own MCP endpoint, `/v1/mcp`. Kept here so it outlives API restarts.
+    private(set) lazy var planeMCP = PlaneMCP(manager: self)
 
     public init(settings: HostSettings) {
         self.settings = settings
